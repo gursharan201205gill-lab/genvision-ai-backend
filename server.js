@@ -4,6 +4,26 @@
 
 require("dotenv").config();
 
+const dns = require("dns");
+
+dns.lookup(
+  "ac-o3lai0r-shard-00-00.6oa6djk.mongodb.net",
+  (err, address, family) => {
+    if (err) {
+      console.error(
+        "DNS LOOKUP ERROR:",
+        err
+      );
+    } else {
+      console.log(
+        "DNS LOOKUP SUCCESS:",
+        address,
+        "IPv" + family
+      );
+    }
+  }
+);
+
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
