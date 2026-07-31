@@ -4,32 +4,11 @@
 
 require("dotenv").config();
 
-const dns = require("dns");
-
-dns.lookup(
-  "ac-o3lai0r-shard-00-00.6oa6djk.mongodb.net",
-  (err, address, family) => {
-    if (err) {
-      console.error(
-        "DNS LOOKUP ERROR:",
-        err
-      );
-    } else {
-      console.log(
-        "DNS LOOKUP SUCCESS:",
-        address,
-        "IPv" + family
-      );
-    }
-  }
-);
-
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 
 const app = express();
-
 
 // ============================================
 // PORT
@@ -37,12 +16,10 @@ const app = express();
 
 const PORT = process.env.PORT || 5000;
 
-
 // ============================================
 // MIDDLEWARE
 // ============================================
 
-// Allow requests from Vercel and other frontends
 app.use(
   cors({
     origin: "*",
@@ -51,13 +28,11 @@ app.use(
   })
 );
 
-// Allow large Base64 image data
 app.use(
   express.json({
     limit: "50mb",
   })
 );
-
 
 // ============================================
 // MONGODB CONNECTION
@@ -72,13 +47,11 @@ console.log(
 
 if (!MONGO_URI) {
   console.error(
-    "ERROR: MONGO_URI is missing from environment variables."
+    "ERROR: MONGO_URI is missing."
   );
 } else {
   mongoose
-    .connect(MONGO_URI, {
-      serverSelectionTimeoutMS: 30000,
-    })
+    .connect(MONGO_URI)
     .then(() => {
       console.log(
         "MongoDB connected successfully"
@@ -86,13 +59,11 @@ if (!MONGO_URI) {
     })
     .catch((error) => {
       console.error(
-        "MongoDB connection error:"
+        "MongoDB connection error:",
+        error
       );
-
-      console.error(error);
     });
 }
-
 
 // ============================================
 // IMAGE SCHEMA
@@ -121,7 +92,6 @@ const imageSchema = new mongoose.Schema(
   }
 );
 
-
 // ============================================
 // IMAGE MODEL
 // ============================================
@@ -130,7 +100,6 @@ const Image = mongoose.model(
   "Image",
   imageSchema
 );
-
 
 // ============================================
 // ROOT ROUTE
@@ -143,7 +112,6 @@ app.get("/", (req, res) => {
       "GenVision AI Backend is Running!",
   });
 });
-
 
 // ============================================
 // HEALTH CHECK
@@ -166,9 +134,8 @@ app.get(
   }
 );
 
-
 // ============================================
-// SAVE GENERATED IMAGE
+// SAVE IMAGE
 // ============================================
 
 app.post(
@@ -176,7 +143,11 @@ app.post(
   async (req, res) => {
     try {
       console.log(
-        "Received request to save image"
+        "================================"
+      );
+
+      console.log(
+        "SAVE IMAGE REQUEST RECEIVED"
       );
 
       const {
@@ -184,13 +155,19 @@ app.post(
         image,
       } = req.body;
 
+      // ----------------------------------------
+      // CHECK PROMPT
+      // ----------------------------------------
 
-      // Validate prompt
       if (
         !prompt ||
         typeof prompt !== "string" ||
         !prompt.trim()
       ) {
+        console.log(
+          "ERROR: Invalid prompt"
+        );
+
         return res.status(400).json({
           success: false,
           message:
@@ -198,12 +175,18 @@ app.post(
         });
       }
 
+      // ----------------------------------------
+      // CHECK IMAGE
+      // ----------------------------------------
 
-      // Validate image
       if (
         !image ||
         typeof image !== "string"
       ) {
+        console.log(
+          "ERROR: Invalid image"
+        );
+
         return res.status(400).json({
           success: false,
           message:
@@ -211,11 +194,17 @@ app.post(
         });
       }
 
+      // ----------------------------------------
+      // CHECK MONGODB
+      // ----------------------------------------
 
-      // Check MongoDB connection
       if (
         mongoose.connection.readyState !== 1
       ) {
+        console.log(
+          "ERROR: MongoDB is not connected"
+        );
+
         return res.status(503).json({
           success: false,
           message:
@@ -223,24 +212,48 @@ app.post(
         });
       }
 
+      console.log(
+        "Prompt:",
+        prompt
+      );
 
-      // Create image document
-      const newImage = new Image({
-        prompt: prompt.trim(),
-        image: image,
-      });
+      console.log(
+        "Image length:",
+        image.length
+      );
 
+      // ----------------------------------------
+      // CREATE IMAGE
+      // ----------------------------------------
 
-      // Save image
+      const newImage =
+        new Image({
+          prompt:
+            prompt.trim(),
+
+          image:
+            image,
+        });
+
+      // ----------------------------------------
+      // SAVE TO MONGODB
+      // ----------------------------------------
+
       const savedImage =
         await newImage.save();
 
+      console.log(
+        "IMAGE SAVED SUCCESSFULLY"
+      );
 
       console.log(
-        "Image saved successfully:",
+        "MongoDB ID:",
         savedImage._id
       );
 
+      console.log(
+        "================================"
+      );
 
       return res.status(201).json({
         success: true,
@@ -253,7 +266,7 @@ app.post(
 
     } catch (error) {
       console.error(
-        "Error saving image:",
+        "SAVE IMAGE ERROR:",
         error
       );
 
@@ -270,9 +283,8 @@ app.post(
   }
 );
 
-
 // ============================================
-// GET ALL SAVED IMAGES
+// GET IMAGE HISTORY
 // ============================================
 
 app.get(
@@ -280,14 +292,24 @@ app.get(
   async (req, res) => {
     try {
       console.log(
-        "Fetching image history..."
+        "================================"
       );
 
+      console.log(
+        "FETCHING IMAGE HISTORY..."
+      );
 
-      // Check MongoDB connection
+      // ----------------------------------------
+      // CHECK MONGODB
+      // ----------------------------------------
+
       if (
         mongoose.connection.readyState !== 1
       ) {
+        console.log(
+          "MongoDB is not connected"
+        );
+
         return res.status(503).json({
           success: false,
 
@@ -296,28 +318,40 @@ app.get(
         });
       }
 
+      // ----------------------------------------
+      // FETCH IMAGES
+      // ----------------------------------------
 
-      // Get all images
       const images =
         await Image
-          .find()
+          .find({})
           .sort({
             createdAt: -1,
           });
 
+      console.log(
+        "Found",
+        images.length,
+        "saved images"
+      );
 
       console.log(
-        `Found ${images.length} saved images`
+        "================================"
       );
 
+      return res.status(200).json({
+        success: true,
 
-      return res.status(200).json(
-        images
-      );
+        count:
+          images.length,
+
+        images:
+          images,
+      });
 
     } catch (error) {
       console.error(
-        "Error fetching image history:",
+        "FETCH HISTORY ERROR:",
         error
       );
 
@@ -334,9 +368,8 @@ app.get(
   }
 );
 
-
 // ============================================
-// GET ONE IMAGE
+// GET SINGLE IMAGE
 // ============================================
 
 app.get(
@@ -348,7 +381,6 @@ app.get(
           req.params.id
         );
 
-
       if (!image) {
         return res.status(404).json({
           success: false,
@@ -358,14 +390,16 @@ app.get(
         });
       }
 
+      return res.status(200).json({
+        success: true,
 
-      return res.status(200).json(
-        image
-      );
+        image:
+          image,
+      });
 
     } catch (error) {
       console.error(
-        "Error fetching image:",
+        "GET IMAGE ERROR:",
         error
       );
 
@@ -382,7 +416,6 @@ app.get(
   }
 );
 
-
 // ============================================
 // DELETE IMAGE
 // ============================================
@@ -396,7 +429,6 @@ app.delete(
           req.params.id
         );
 
-
       if (!deletedImage) {
         return res.status(404).json({
           success: false,
@@ -406,12 +438,10 @@ app.delete(
         });
       }
 
-
       console.log(
         "Image deleted:",
         req.params.id
       );
-
 
       return res.status(200).json({
         success: true,
@@ -422,7 +452,7 @@ app.delete(
 
     } catch (error) {
       console.error(
-        "Error deleting image:",
+        "DELETE IMAGE ERROR:",
         error
       );
 
@@ -439,7 +469,6 @@ app.delete(
   }
 );
 
-
 // ============================================
 // 404 ROUTE
 // ============================================
@@ -454,7 +483,6 @@ app.use(
     });
   }
 );
-
 
 // ============================================
 // START SERVER
