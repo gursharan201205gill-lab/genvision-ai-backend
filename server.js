@@ -30,8 +30,19 @@ const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI;
 const RUNWAY_API_KEY = process.env.RUNWAY_API_KEY;
 
-console.log("Mongo URI exists:", Boolean(MONGO_URI));
-console.log("Runway API key exists:", Boolean(RUNWAY_API_KEY));
+console.log("================================");
+console.log("GENVISION AI BACKEND STARTING");
+console.log("================================");
+
+console.log(
+  "Mongo URI exists:",
+  Boolean(MONGO_URI)
+);
+
+console.log(
+  "Runway API key exists:",
+  Boolean(RUNWAY_API_KEY)
+);
 
 // ============================================
 // DNS DEBUG
@@ -41,7 +52,10 @@ dns.lookup(
   "ac-o3lai0r-shard-00-00.6oa6djk.mongodb.net",
   (err, address, family) => {
     if (err) {
-      console.error("DNS LOOKUP ERROR:", err);
+      console.error(
+        "DNS LOOKUP ERROR:",
+        err
+      );
     } else {
       console.log(
         "DNS LOOKUP SUCCESS:",
@@ -59,12 +73,14 @@ dns.lookup(
 app.use(
   cors({
     origin: "*",
+
     methods: [
       "GET",
       "POST",
       "DELETE",
       "OPTIONS",
     ],
+
     allowedHeaders: [
       "Content-Type",
       "Authorization",
@@ -72,10 +88,28 @@ app.use(
   })
 );
 
+// ============================================
+// JSON BODY PARSER
+// ============================================
+
 app.use(
   express.json({
     limit: "50mb",
   })
+);
+
+// ============================================
+// REQUEST DEBUG MIDDLEWARE
+// ============================================
+
+app.use(
+  (req, res, next) => {
+    console.log(
+      `${new Date().toISOString()} - ${req.method} ${req.originalUrl}`
+    );
+
+    next();
+  }
 );
 
 // ============================================
@@ -100,9 +134,42 @@ if (!MONGO_URI) {
       console.error(
         "MongoDB connection error:"
       );
+
       console.error(error);
     });
 }
+
+// ============================================
+// MONGODB CONNECTION EVENTS
+// ============================================
+
+mongoose.connection.on(
+  "connected",
+  () => {
+    console.log(
+      "MongoDB connection event: connected"
+    );
+  }
+);
+
+mongoose.connection.on(
+  "error",
+  (error) => {
+    console.error(
+      "MongoDB connection event error:",
+      error
+    );
+  }
+);
+
+mongoose.connection.on(
+  "disconnected",
+  () => {
+    console.log(
+      "MongoDB connection event: disconnected"
+    );
+  }
+);
 
 // ============================================
 // RUNWAY CLIENT
@@ -111,13 +178,25 @@ if (!MONGO_URI) {
 let runway = null;
 
 if (RUNWAY_API_KEY) {
-  runway = new RunwayML({
-    apiKey: RUNWAY_API_KEY,
-  });
+  try {
+    runway = new RunwayML({
+      apiKey: RUNWAY_API_KEY,
+    });
 
-  console.log(
-    "Runway client initialized successfully"
-  );
+    console.log(
+      "Runway client initialized successfully"
+    );
+
+  } catch (error) {
+    console.error(
+      "Failed to initialize Runway client:"
+    );
+
+    console.error(error);
+
+    runway = null;
+  }
+
 } else {
   console.error(
     "WARNING: RUNWAY_API_KEY is missing."
@@ -128,72 +207,82 @@ if (RUNWAY_API_KEY) {
 // IMAGE SCHEMA
 // ============================================
 
-const imageSchema = new mongoose.Schema(
-  {
-    prompt: {
-      type: String,
-      required: true,
-      trim: true,
+const imageSchema =
+  new mongoose.Schema(
+    {
+      prompt: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+
+      image: {
+        type: String,
+        required: true,
+      },
+
+      createdAt: {
+        type: Date,
+        default: Date.now,
+      },
     },
 
-    image: {
-      type: String,
-      required: true,
-    },
-
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
-  },
-  {
-    timestamps: true,
-  }
-);
+    {
+      timestamps: true,
+    }
+  );
 
 // ============================================
 // IMAGE MODEL
 // ============================================
 
-const Image = mongoose.model(
-  "Image",
-  imageSchema
-);
+const Image =
+  mongoose.model(
+    "Image",
+    imageSchema
+  );
 
 // ============================================
 // ROOT ROUTE
 // ============================================
 
-app.get("/", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message:
-      "GenVision AI Backend is Running!",
-  });
-});
+app.get(
+  "/",
+  (req, res) => {
+    res.status(200).json({
+      success: true,
+
+      message:
+        "GenVision AI Backend is Running!",
+    });
+  }
+);
 
 // ============================================
 // HEALTH CHECK
 // ============================================
 
-app.get("/api/health", (req, res) => {
-  res.status(200).json({
-    success: true,
+app.get(
+  "/api/health",
+  (req, res) => {
+    res.status(200).json({
+      success: true,
 
-    server:
-      "Backend is running",
+      server:
+        "Backend is running",
 
-    mongodb:
-      mongoose.connection.readyState === 1
-        ? "Connected"
-        : "Disconnected",
+      mongodb:
+        mongoose.connection.readyState === 1
+          ? "Connected"
+          : "Disconnected",
 
-    runway:
-      RUNWAY_API_KEY
-        ? "Configured"
-        : "Not configured",
-  });
-});
+      runway:
+        RUNWAY_API_KEY
+          ? "Configured"
+          : "Not configured",
+    });
+  }
+);
 
 // ============================================
 // SAVE GENERATED IMAGE
@@ -213,7 +302,7 @@ app.post(
       } = req.body;
 
       // ----------------------------------------
-      // Validate prompt
+      // VALIDATE PROMPT
       // ----------------------------------------
 
       if (
@@ -223,13 +312,14 @@ app.post(
       ) {
         return res.status(400).json({
           success: false,
+
           message:
             "A valid prompt is required.",
         });
       }
 
       // ----------------------------------------
-      // Validate image
+      // VALIDATE IMAGE
       // ----------------------------------------
 
       if (
@@ -238,13 +328,14 @@ app.post(
       ) {
         return res.status(400).json({
           success: false,
+
           message:
             "A valid image is required.",
         });
       }
 
       // ----------------------------------------
-      // Check MongoDB connection
+      // CHECK MONGODB
       // ----------------------------------------
 
       if (
@@ -252,22 +343,27 @@ app.post(
       ) {
         return res.status(503).json({
           success: false,
+
           message:
             "MongoDB is not connected.",
         });
       }
 
       // ----------------------------------------
-      // Create image document
+      // CREATE IMAGE
       // ----------------------------------------
 
-      const newImage = new Image({
-        prompt: prompt.trim(),
-        image: image,
-      });
+      const newImage =
+        new Image({
+          prompt:
+            prompt.trim(),
+
+          image:
+            image,
+        });
 
       // ----------------------------------------
-      // Save image
+      // SAVE IMAGE
       // ----------------------------------------
 
       const savedImage =
@@ -320,7 +416,7 @@ app.get(
       );
 
       // ----------------------------------------
-      // Check MongoDB connection
+      // CHECK MONGODB
       // ----------------------------------------
 
       if (
@@ -335,7 +431,7 @@ app.get(
       }
 
       // ----------------------------------------
-      // Get all images
+      // GET IMAGES
       // ----------------------------------------
 
       const images =
@@ -477,24 +573,31 @@ app.delete(
 app.post(
   "/api/videos/generate",
   async (req, res) => {
+
+    console.log(
+      "================================"
+    );
+
+    console.log(
+      "VIDEO GENERATION REQUEST RECEIVED"
+    );
+
+    console.log(
+      "================================"
+    );
+
     try {
-      console.log(
-        "================================"
-      );
-
-      console.log(
-        "Received Text-to-Video request"
-      );
-
-      console.log(
-        "================================"
-      );
 
       // ----------------------------------------
-      // Check Runway configuration
+      // CHECK RUNWAY CLIENT
       // ----------------------------------------
 
       if (!runway) {
+
+        console.error(
+          "Runway client is not initialized."
+        );
+
         return res.status(500).json({
           success: false,
 
@@ -504,16 +607,59 @@ app.post(
       }
 
       // ----------------------------------------
-      // Get request body
+      // PRINT REQUEST BODY
       // ----------------------------------------
 
-      const {
-        prompt,
-        ratio = "1280:720",
-      } = req.body;
+      console.log(
+        "Request body:",
+        req.body
+      );
 
       // ----------------------------------------
-      // Validate prompt
+      // GET PROMPT
+      // ----------------------------------------
+
+      const prompt =
+        req.body?.prompt;
+
+      // ----------------------------------------
+      // GET RATIO
+      // ----------------------------------------
+
+      const ratio =
+        req.body?.ratio ||
+        "1280:720";
+
+      // ----------------------------------------
+      // GET DURATION
+      // ----------------------------------------
+
+      const duration =
+        Number(
+          req.body?.duration || 5
+        );
+
+      // ----------------------------------------
+      // LOG REQUEST DATA
+      // ----------------------------------------
+
+      console.log(
+        "Video prompt:",
+        prompt
+      );
+
+      console.log(
+        "Video ratio:",
+        ratio
+      );
+
+      console.log(
+        "Video duration:",
+        duration
+      );
+
+      // ----------------------------------------
+      // VALIDATE PROMPT
       // ----------------------------------------
 
       if (
@@ -521,21 +667,27 @@ app.post(
         typeof prompt !== "string" ||
         !prompt.trim()
       ) {
+
+        console.error(
+          "Invalid video prompt."
+        );
+
         return res.status(400).json({
           success: false,
 
           message:
-            "A valid video prompt is required.",
+            "Please enter a valid video prompt.",
         });
       }
 
       // ----------------------------------------
-      // Validate prompt length
+      // VALIDATE PROMPT LENGTH
       // ----------------------------------------
 
       if (
         prompt.trim().length > 1000
       ) {
+
         return res.status(400).json({
           success: false,
 
@@ -545,7 +697,7 @@ app.post(
       }
 
       // ----------------------------------------
-      // Validate ratio
+      // VALIDATE RATIO
       // ----------------------------------------
 
       const allowedRatios = [
@@ -558,6 +710,12 @@ app.post(
           ratio
         )
       ) {
+
+        console.error(
+          "Invalid video ratio:",
+          ratio
+        );
+
         return res.status(400).json({
           success: false,
 
@@ -566,72 +724,140 @@ app.post(
         });
       }
 
+      // ----------------------------------------
+      // VALIDATE DURATION
+      // ----------------------------------------
+
+      if (
+        !Number.isInteger(
+          duration
+        ) ||
+        duration < 2 ||
+        duration > 10
+      ) {
+
+        console.error(
+          "Invalid video duration:",
+          duration
+        );
+
+        return res.status(400).json({
+          success: false,
+
+          message:
+            "Duration must be an integer between 2 and 10 seconds.",
+        });
+      }
+
+      // ----------------------------------------
+      // FINAL REQUEST DATA
+      // ----------------------------------------
+
       console.log(
-        "Video prompt:",
+        "================================"
+      );
+
+      console.log(
+        "SENDING REQUEST TO RUNWAY"
+      );
+
+      console.log(
+        "================================"
+      );
+
+      console.log(
+        "Model:",
+        "gen4.5"
+      );
+
+      console.log(
+        "Prompt:",
         prompt.trim()
       );
 
       console.log(
-        "Video ratio:",
+        "Ratio:",
         ratio
       );
 
+      console.log(
+        "Duration:",
+        duration
+      );
+
       // ----------------------------------------
-      // CREATE RUNWAY TEXT-TO-VIDEO TASK
+      // RUNWAY TEXT TO VIDEO
       // ----------------------------------------
 
       const task =
-      await runway.textToVideo
-      .create({
-      model: "gen4.5",
+        await runway.textToVideo.create({
 
-      promptText:
-      prompt.trim(),
-        ratio:
-          ratio,
-        
-        duration:
-          numericDuration,
-      });
+          model:
+            "gen4.5",
 
-console.log(
-  "Runway task created:",
-  task.id
-);
+          promptText:
+            prompt.trim(),
+
+          ratio:
+            ratio,
+
+          duration:
+            duration,
+
+        });
 
       // ----------------------------------------
-      // LOG TASK
+      // TASK CREATED
       // ----------------------------------------
 
       console.log(
-        "Runway task created successfully"
+        "================================"
       );
 
       console.log(
-        "Runway task ID:",
+        "RUNWAY TASK CREATED SUCCESSFULLY"
+      );
+
+      console.log(
+        "Task ID:",
         task.id
       );
 
       console.log(
-        "Runway task status:",
+        "Task Status:",
         task.status
       );
 
+      console.log(
+        "================================"
+      );
+
       // ----------------------------------------
-      // RETURN TASK ID
+      // RETURN TASK
       // ----------------------------------------
 
       return res.status(202).json({
-        success: true,
+
+        success:
+          true,
 
         message:
           "Video generation started.",
 
         taskId:
           task.id,
+
+        status:
+          task.status,
+
       });
 
     } catch (error) {
+
+      // ========================================
+      // RUNWAY ERROR
+      // ========================================
+
       console.error(
         "================================"
       );
@@ -645,18 +871,33 @@ console.log(
       );
 
       console.error(
+        "Error name:",
+        error?.name
+      );
+
+      console.error(
         "Error message:",
-        error.message
+        error?.message
       );
 
       console.error(
         "Error status:",
-        error.status
+        error?.status
+      );
+
+      console.error(
+        "Error code:",
+        error?.code
       );
 
       console.error(
         "Error response:",
-        error.response
+        error?.response
+      );
+
+      console.error(
+        "Error body:",
+        error?.body
       );
 
       console.error(
@@ -664,20 +905,28 @@ console.log(
         error
       );
 
+      console.error(
+        "================================"
+      );
+
       return res.status(
-        error.status || 500
+        error?.status || 500
       ).json({
-        success: false,
+
+        success:
+          false,
 
         message:
           "Failed to start video generation.",
 
         error:
-          error.message ||
-          String(error),
+          error?.message ||
+          "Unknown Runway API error.",
 
         status:
-          error.status || 500,
+          error?.status ||
+          500,
+
       });
     }
   }
@@ -690,12 +939,15 @@ console.log(
 app.get(
   "/api/videos/status/:taskId",
   async (req, res) => {
+
     try {
+
       // ----------------------------------------
-      // Check Runway configuration
+      // CHECK RUNWAY
       // ----------------------------------------
 
       if (!runway) {
+
         return res.status(500).json({
           success: false,
 
@@ -705,13 +957,14 @@ app.get(
       }
 
       // ----------------------------------------
-      // Get task ID
+      // GET TASK ID
       // ----------------------------------------
 
       const taskId =
         req.params.taskId;
 
       if (!taskId) {
+
         return res.status(400).json({
           success: false,
 
@@ -726,7 +979,7 @@ app.get(
       );
 
       // ----------------------------------------
-      // Get Runway task
+      // RETRIEVE TASK
       // ----------------------------------------
 
       const task =
@@ -740,11 +993,13 @@ app.get(
       );
 
       // ----------------------------------------
-      // Return status
+      // RETURN TASK STATUS
       // ----------------------------------------
 
       return res.status(200).json({
-        success: true,
+
+        success:
+          true,
 
         taskId:
           task.id,
@@ -753,30 +1008,41 @@ app.get(
           task.status,
 
         output:
-          task.output || null,
+          task.output ||
+          null,
 
         failure:
-          task.failure || null,
+          task.failure ||
+          null,
 
         failureCode:
-          task.failureCode || null,
+          task.failureCode ||
+          null,
+
       });
 
     } catch (error) {
+
       console.error(
-        "Runway task status error:",
+        "Runway task status error:"
+      );
+
+      console.error(
         error
       );
 
       return res.status(500).json({
-        success: false,
+
+        success:
+          false,
 
         message:
           "Failed to check video status.",
 
         error:
-          error.message ||
+          error?.message ||
           String(error),
+
       });
     }
   }
@@ -784,16 +1050,68 @@ app.get(
 
 // ============================================
 // 404 ROUTE
-// MUST ALWAYS BE LAST
+// MUST BE LAST
 // ============================================
 
 app.use(
   (req, res) => {
+
+    console.log(
+      "404 ROUTE NOT FOUND:",
+      req.method,
+      req.originalUrl
+    );
+
     res.status(404).json({
-      success: false,
+
+      success:
+        false,
 
       message:
         "Route not found.",
+
+    });
+  }
+);
+
+// ============================================
+// GLOBAL ERROR HANDLER
+// ============================================
+
+app.use(
+  (error, req, res, next) => {
+
+    console.error(
+      "================================"
+    );
+
+    console.error(
+      "GLOBAL SERVER ERROR"
+    );
+
+    console.error(
+      "================================"
+    );
+
+    console.error(
+      error
+    );
+
+    if (res.headersSent) {
+      return next(error);
+    }
+
+    return res.status(
+      error.status || 500
+    ).json({
+
+      success:
+        false,
+
+      message:
+        error.message ||
+        "Internal server error.",
+
     });
   }
 );
@@ -806,8 +1124,22 @@ app.listen(
   PORT,
   "0.0.0.0",
   () => {
+
+    console.log(
+      "================================"
+    );
+
     console.log(
       `Backend server running on port ${PORT}`
     );
+
+    console.log(
+      `Health check: http://localhost:${PORT}/api/health`
+    );
+
+    console.log(
+      "================================"
+    );
+
   }
 );
