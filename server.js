@@ -1,12 +1,20 @@
 // ============================================
 // GENVISION AI - BACKEND SERVER
+// IMAGE HISTORY + RUNWAY TEXT TO VIDEO
 // ============================================
 
 require("dotenv").config();
 
+const dns = require("dns");
+
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const RunwayML = require("@runwayml/sdk");
+
+// ============================================
+// APP
+// ============================================
 
 const app = express();
 
@@ -17,17 +25,67 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ============================================
+// ENVIRONMENT VARIABLES
+// ============================================
+
+const MONGO_URI = process.env.MONGO_URI;
+const RUNWAY_API_KEY = process.env.RUNWAY_API_KEY;
+
+console.log(
+  "Mongo URI exists:",
+  Boolean(MONGO_URI)
+);
+
+console.log(
+  "Runway API key exists:",
+  Boolean(RUNWAY_API_KEY)
+);
+
+// ============================================
+// DNS DEBUG
+// ============================================
+
+dns.lookup(
+  "ac-o3lai0r-shard-00-00.6oa6djk.mongodb.net",
+  (err, address, family) => {
+    if (err) {
+      console.error(
+        "DNS LOOKUP ERROR:",
+        err
+      );
+    } else {
+      console.log(
+        "DNS LOOKUP SUCCESS:",
+        address,
+        "IPv" + family
+      );
+    }
+  }
+);
+
+// ============================================
 // MIDDLEWARE
 // ============================================
 
 app.use(
   cors({
     origin: "*",
-    methods: ["GET", "POST", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type"],
+
+    methods: [
+      "GET",
+      "POST",
+      "DELETE",
+      "OPTIONS",
+    ],
+
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+    ],
   })
 );
 
+// Allow large Base64 image data
 app.use(
   express.json({
     limit: "50mb",
@@ -38,20 +96,15 @@ app.use(
 // MONGODB CONNECTION
 // ============================================
 
-const MONGO_URI = process.env.MONGO_URI;
-
-console.log(
-  "Mongo URI exists:",
-  Boolean(MONGO_URI)
-);
-
 if (!MONGO_URI) {
   console.error(
-    "ERROR: MONGO_URI is missing."
+    "ERROR: MONGO_URI is missing from environment variables."
   );
 } else {
   mongoose
-    .connect(MONGO_URI)
+    .connect(MONGO_URI, {
+      serverSelectionTimeoutMS: 30000,
+    })
     .then(() => {
       console.log(
         "MongoDB connected successfully"
@@ -59,59 +112,87 @@ if (!MONGO_URI) {
     })
     .catch((error) => {
       console.error(
-        "MongoDB connection error:",
-        error
+        "MongoDB connection error:"
       );
+
+      console.error(error);
     });
+}
+
+// ============================================
+// RUNWAY CLIENT
+// ============================================
+
+let runway = null;
+
+if (RUNWAY_API_KEY) {
+  runway = new RunwayML({
+    apiKey: RUNWAY_API_KEY,
+  });
+
+  console.log(
+    "Runway client initialized successfully"
+  );
+} else {
+  console.error(
+    "WARNING: RUNWAY_API_KEY is missing."
+  );
 }
 
 // ============================================
 // IMAGE SCHEMA
 // ============================================
 
-const imageSchema = new mongoose.Schema(
-  {
-    prompt: {
-      type: String,
-      required: true,
-      trim: true,
+const imageSchema =
+  new mongoose.Schema(
+    {
+      prompt: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+
+      image: {
+        type: String,
+        required: true,
+      },
+
+      createdAt: {
+        type: Date,
+        default: Date.now,
+      },
     },
 
-    image: {
-      type: String,
-      required: true,
-    },
-
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
-  },
-  {
-    timestamps: true,
-  }
-);
+    {
+      timestamps: true,
+    }
+  );
 
 // ============================================
 // IMAGE MODEL
 // ============================================
 
-const Image = mongoose.model(
-  "Image",
-  imageSchema
-);
+const Image =
+  mongoose.model(
+    "Image",
+    imageSchema
+  );
 
 // ============================================
 // ROOT ROUTE
 // ============================================
 
-app.get("/", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message:
-      "GenVision AI Backend is Running!",
-  });
-});
+app.get(
+  "/",
+  (req, res) => {
+    res.status(200).json({
+      success: true,
+
+      message:
+        "GenVision AI Backend is Running!",
+    });
+  }
+);
 
 // ============================================
 // HEALTH CHECK
@@ -130,12 +211,17 @@ app.get(
         mongoose.connection.readyState === 1
           ? "Connected"
           : "Disconnected",
+
+      runway:
+        RUNWAY_API_KEY
+          ? "Configured"
+          : "Not configured",
     });
   }
 );
 
 // ============================================
-// SAVE IMAGE
+// SAVE GENERATED IMAGE
 // ============================================
 
 app.post(
@@ -143,11 +229,7 @@ app.post(
   async (req, res) => {
     try {
       console.log(
-        "================================"
-      );
-
-      console.log(
-        "SAVE IMAGE REQUEST RECEIVED"
+        "Received request to save image"
       );
 
       const {
@@ -156,7 +238,7 @@ app.post(
       } = req.body;
 
       // ----------------------------------------
-      // CHECK PROMPT
+      // Validate prompt
       // ----------------------------------------
 
       if (
@@ -164,66 +246,47 @@ app.post(
         typeof prompt !== "string" ||
         !prompt.trim()
       ) {
-        console.log(
-          "ERROR: Invalid prompt"
-        );
-
         return res.status(400).json({
           success: false,
+
           message:
             "A valid prompt is required.",
         });
       }
 
       // ----------------------------------------
-      // CHECK IMAGE
+      // Validate image
       // ----------------------------------------
 
       if (
         !image ||
         typeof image !== "string"
       ) {
-        console.log(
-          "ERROR: Invalid image"
-        );
-
         return res.status(400).json({
           success: false,
+
           message:
             "A valid image is required.",
         });
       }
 
       // ----------------------------------------
-      // CHECK MONGODB
+      // Check MongoDB connection
       // ----------------------------------------
 
       if (
         mongoose.connection.readyState !== 1
       ) {
-        console.log(
-          "ERROR: MongoDB is not connected"
-        );
-
         return res.status(503).json({
           success: false,
+
           message:
             "MongoDB is not connected.",
         });
       }
 
-      console.log(
-        "Prompt:",
-        prompt
-      );
-
-      console.log(
-        "Image length:",
-        image.length
-      );
-
       // ----------------------------------------
-      // CREATE IMAGE
+      // Create image document
       // ----------------------------------------
 
       const newImage =
@@ -236,23 +299,15 @@ app.post(
         });
 
       // ----------------------------------------
-      // SAVE TO MONGODB
+      // Save image
       // ----------------------------------------
 
       const savedImage =
         await newImage.save();
 
       console.log(
-        "IMAGE SAVED SUCCESSFULLY"
-      );
-
-      console.log(
-        "MongoDB ID:",
+        "Image saved successfully:",
         savedImage._id
-      );
-
-      console.log(
-        "================================"
       );
 
       return res.status(201).json({
@@ -261,12 +316,13 @@ app.post(
         message:
           "Image saved successfully.",
 
-        image: savedImage,
+        image:
+          savedImage,
       });
 
     } catch (error) {
       console.error(
-        "SAVE IMAGE ERROR:",
+        "Error saving image:",
         error
       );
 
@@ -284,7 +340,7 @@ app.post(
 );
 
 // ============================================
-// GET IMAGE HISTORY
+// GET ALL SAVED IMAGES
 // ============================================
 
 app.get(
@@ -292,24 +348,16 @@ app.get(
   async (req, res) => {
     try {
       console.log(
-        "================================"
-      );
-
-      console.log(
-        "FETCHING IMAGE HISTORY..."
+        "Fetching image history..."
       );
 
       // ----------------------------------------
-      // CHECK MONGODB
+      // Check MongoDB connection
       // ----------------------------------------
 
       if (
         mongoose.connection.readyState !== 1
       ) {
-        console.log(
-          "MongoDB is not connected"
-        );
-
         return res.status(503).json({
           success: false,
 
@@ -319,39 +367,27 @@ app.get(
       }
 
       // ----------------------------------------
-      // FETCH IMAGES
+      // Get all images
       // ----------------------------------------
 
       const images =
         await Image
-          .find({})
+          .find()
           .sort({
             createdAt: -1,
           });
 
       console.log(
-        "Found",
-        images.length,
-        "saved images"
+        `Found ${images.length} saved images`
       );
 
-      console.log(
-        "================================"
+      return res.status(200).json(
+        images
       );
-
-      return res.status(200).json({
-        success: true,
-
-        count:
-          images.length,
-
-        images:
-          images,
-      });
 
     } catch (error) {
       console.error(
-        "FETCH HISTORY ERROR:",
+        "Error fetching image history:",
         error
       );
 
@@ -369,7 +405,7 @@ app.get(
 );
 
 // ============================================
-// GET SINGLE IMAGE
+// GET ONE IMAGE
 // ============================================
 
 app.get(
@@ -390,16 +426,13 @@ app.get(
         });
       }
 
-      return res.status(200).json({
-        success: true,
-
-        image:
-          image,
-      });
+      return res.status(200).json(
+        image
+      );
 
     } catch (error) {
       console.error(
-        "GET IMAGE ERROR:",
+        "Error fetching image:",
         error
       );
 
@@ -452,7 +485,7 @@ app.delete(
 
     } catch (error) {
       console.error(
-        "DELETE IMAGE ERROR:",
+        "Error deleting image:",
         error
       );
 
@@ -464,6 +497,270 @@ app.delete(
 
         error:
           error.message,
+      });
+    }
+  }
+);
+
+// ============================================
+// RUNWAY TEXT TO VIDEO
+// ============================================
+
+app.post(
+  "/api/videos/generate",
+  async (req, res) => {
+    try {
+      console.log(
+        "Received Text-to-Video request"
+      );
+
+      // ----------------------------------------
+      // Check Runway configuration
+      // ----------------------------------------
+
+      if (!runway) {
+        return res.status(500).json({
+          success: false,
+
+          message:
+            "Runway API is not configured. Please check RUNWAY_API_KEY.",
+        });
+      }
+
+      // ----------------------------------------
+      // Get request body
+      // ----------------------------------------
+
+      const {
+        prompt,
+        ratio = "1280:720",
+        duration = 5,
+      } = req.body;
+
+      // ----------------------------------------
+      // Validate prompt
+      // ----------------------------------------
+
+      if (
+        !prompt ||
+        typeof prompt !== "string" ||
+        !prompt.trim()
+      ) {
+        return res.status(400).json({
+          success: false,
+
+          message:
+            "A valid video prompt is required.",
+        });
+      }
+
+      // ----------------------------------------
+      // Validate prompt length
+      // ----------------------------------------
+
+      if (
+        prompt.trim().length > 1000
+      ) {
+        return res.status(400).json({
+          success: false,
+
+          message:
+            "Video prompt must be 1000 characters or less.",
+        });
+      }
+
+      // ----------------------------------------
+      // Validate ratio
+      // ----------------------------------------
+
+      const allowedRatios = [
+        "1280:720",
+        "720:1280",
+      ];
+
+      if (
+        !allowedRatios.includes(
+          ratio
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+
+          message:
+            "Invalid video ratio.",
+        });
+      }
+
+      // ----------------------------------------
+      // Validate duration
+      // ----------------------------------------
+
+      const numericDuration =
+        Number(duration);
+
+      if (
+        !Number.isInteger(
+          numericDuration
+        ) ||
+        numericDuration < 2 ||
+        numericDuration > 10
+      ) {
+        return res.status(400).json({
+          success: false,
+
+          message:
+            "Duration must be an integer between 2 and 10 seconds.",
+        });
+      }
+
+      console.log(
+        "Video prompt:",
+        prompt.trim()
+      );
+
+      console.log(
+        "Video ratio:",
+        ratio
+      );
+
+      console.log(
+        "Video duration:",
+        numericDuration
+      );
+
+      // ----------------------------------------
+      // Create Runway Text-to-Video task
+      // ----------------------------------------
+
+      const task =
+        await runway.imageToVideo
+          .create({
+            model:
+              "gen4.5",
+
+            promptText:
+              prompt.trim(),
+
+            ratio:
+              ratio,
+
+            duration:
+              numericDuration,
+          });
+
+      console.log(
+        "Runway task created:",
+        task.id
+      );
+
+      // ----------------------------------------
+      // Return task ID
+      // ----------------------------------------
+
+      return res.status(202).json({
+        success: true,
+
+        message:
+          "Video generation started.",
+
+        taskId:
+          task.id,
+      });
+
+    } catch (error) {
+      console.error(
+        "Runway Text-to-Video error:"
+      );
+
+      console.error(error);
+
+      return res.status(500).json({
+        success: false,
+
+        message:
+          "Failed to start video generation.",
+
+        error:
+          error.message ||
+          String(error),
+      });
+    }
+  }
+);
+
+// ============================================
+// RUNWAY VIDEO STATUS
+// ============================================
+
+app.get(
+  "/api/videos/status/:taskId",
+  async (req, res) => {
+    try {
+      if (!runway) {
+        return res.status(500).json({
+          success: false,
+
+          message:
+            "Runway API is not configured.",
+        });
+      }
+
+      const taskId =
+        req.params.taskId;
+
+      if (!taskId) {
+        return res.status(400).json({
+          success: false,
+
+          message:
+            "Task ID is required.",
+        });
+      }
+
+      console.log(
+        "Checking Runway task:",
+        taskId
+      );
+
+      const task =
+        await runway.tasks.retrieve(
+          taskId
+        );
+
+      return res.status(200).json({
+        success: true,
+
+        taskId:
+          task.id,
+
+        status:
+          task.status,
+
+        output:
+          task.output || null,
+
+        failure:
+          task.failure || null,
+
+        failureCode:
+          task.failureCode || null,
+      });
+
+    } catch (error) {
+      console.error(
+        "Runway task status error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+
+        message:
+          "Failed to check video status.",
+
+        error:
+          error.message ||
+          String(error),
       });
     }
   }
