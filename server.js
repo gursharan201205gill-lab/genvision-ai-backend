@@ -6,7 +6,6 @@
 require("dotenv").config();
 
 const dns = require("dns");
-
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -31,15 +30,8 @@ const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI;
 const RUNWAY_API_KEY = process.env.RUNWAY_API_KEY;
 
-console.log(
-  "Mongo URI exists:",
-  Boolean(MONGO_URI)
-);
-
-console.log(
-  "Runway API key exists:",
-  Boolean(RUNWAY_API_KEY)
-);
+console.log("Mongo URI exists:", Boolean(MONGO_URI));
+console.log("Runway API key exists:", Boolean(RUNWAY_API_KEY));
 
 // ============================================
 // DNS DEBUG
@@ -49,10 +41,7 @@ dns.lookup(
   "ac-o3lai0r-shard-00-00.6oa6djk.mongodb.net",
   (err, address, family) => {
     if (err) {
-      console.error(
-        "DNS LOOKUP ERROR:",
-        err
-      );
+      console.error("DNS LOOKUP ERROR:", err);
     } else {
       console.log(
         "DNS LOOKUP SUCCESS:",
@@ -70,14 +59,12 @@ dns.lookup(
 app.use(
   cors({
     origin: "*",
-
     methods: [
       "GET",
       "POST",
       "DELETE",
       "OPTIONS",
     ],
-
     allowedHeaders: [
       "Content-Type",
       "Authorization",
@@ -85,7 +72,6 @@ app.use(
   })
 );
 
-// Allow large Base64 image data
 app.use(
   express.json({
     limit: "50mb",
@@ -114,7 +100,6 @@ if (!MONGO_URI) {
       console.error(
         "MongoDB connection error:"
       );
-
       console.error(error);
     });
 }
@@ -143,82 +128,72 @@ if (RUNWAY_API_KEY) {
 // IMAGE SCHEMA
 // ============================================
 
-const imageSchema =
-  new mongoose.Schema(
-    {
-      prompt: {
-        type: String,
-        required: true,
-        trim: true,
-      },
-
-      image: {
-        type: String,
-        required: true,
-      },
-
-      createdAt: {
-        type: Date,
-        default: Date.now,
-      },
+const imageSchema = new mongoose.Schema(
+  {
+    prompt: {
+      type: String,
+      required: true,
+      trim: true,
     },
 
-    {
-      timestamps: true,
-    }
-  );
+    image: {
+      type: String,
+      required: true,
+    },
+
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
 
 // ============================================
 // IMAGE MODEL
 // ============================================
 
-const Image =
-  mongoose.model(
-    "Image",
-    imageSchema
-  );
+const Image = mongoose.model(
+  "Image",
+  imageSchema
+);
 
 // ============================================
 // ROOT ROUTE
 // ============================================
 
-app.get(
-  "/",
-  (req, res) => {
-    res.status(200).json({
-      success: true,
-
-      message:
-        "GenVision AI Backend is Running!",
-    });
-  }
-);
+app.get("/", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message:
+      "GenVision AI Backend is Running!",
+  });
+});
 
 // ============================================
 // HEALTH CHECK
 // ============================================
 
-app.get(
-  "/api/health",
-  (req, res) => {
-    res.status(200).json({
-      success: true,
+app.get("/api/health", (req, res) => {
+  res.status(200).json({
+    success: true,
 
-      server:
-        "Backend is running",
+    server:
+      "Backend is running",
 
-      mongodb:
-        mongoose.connection.readyState === 1
-          ? "Connected"
-          : "Disconnected",
+    mongodb:
+      mongoose.connection.readyState === 1
+        ? "Connected"
+        : "Disconnected",
 
-      runway:
-        RUNWAY_API_KEY
-          ? "Configured"
-          : "Not configured",
-    });
-  }
-);
+    runway:
+      RUNWAY_API_KEY
+        ? "Configured"
+        : "Not configured",
+  });
+});
 
 // ============================================
 // SAVE GENERATED IMAGE
@@ -248,7 +223,6 @@ app.post(
       ) {
         return res.status(400).json({
           success: false,
-
           message:
             "A valid prompt is required.",
         });
@@ -264,7 +238,6 @@ app.post(
       ) {
         return res.status(400).json({
           success: false,
-
           message:
             "A valid image is required.",
         });
@@ -279,7 +252,6 @@ app.post(
       ) {
         return res.status(503).json({
           success: false,
-
           message:
             "MongoDB is not connected.",
         });
@@ -289,14 +261,10 @@ app.post(
       // Create image document
       // ----------------------------------------
 
-      const newImage =
-        new Image({
-          prompt:
-            prompt.trim(),
-
-          image:
-            image,
-        });
+      const newImage = new Image({
+        prompt: prompt.trim(),
+        image: image,
+      });
 
       // ----------------------------------------
       // Save image
@@ -511,7 +479,15 @@ app.post(
   async (req, res) => {
     try {
       console.log(
+        "================================"
+      );
+
+      console.log(
         "Received Text-to-Video request"
+      );
+
+      console.log(
+        "================================"
       );
 
       // ----------------------------------------
@@ -534,7 +510,6 @@ app.post(
       const {
         prompt,
         ratio = "1280:720",
-        duration = 5,
       } = req.body;
 
       // ----------------------------------------
@@ -587,29 +562,7 @@ app.post(
           success: false,
 
           message:
-            "Invalid video ratio.",
-        });
-      }
-
-      // ----------------------------------------
-      // Validate duration
-      // ----------------------------------------
-
-      const numericDuration =
-        Number(duration);
-
-      if (
-        !Number.isInteger(
-          numericDuration
-        ) ||
-        numericDuration < 2 ||
-        numericDuration > 10
-      ) {
-        return res.status(400).json({
-          success: false,
-
-          message:
-            "Duration must be an integer between 2 and 10 seconds.",
+            "Invalid video ratio. Use 1280:720 or 720:1280.",
         });
       }
 
@@ -623,38 +576,49 @@ app.post(
         ratio
       );
 
-      console.log(
-        "Video duration:",
-        numericDuration
-      );
-
       // ----------------------------------------
-      // Create Runway Text-to-Video task
+      // CREATE RUNWAY TEXT-TO-VIDEO TASK
       // ----------------------------------------
 
       const task =
-        await runway.imageToVideo
-          .create({
-            model:
-              "gen4.5",
+      await runway.textToVideo
+      .create({
+      model: "gen4.5",
 
-            promptText:
-              prompt.trim(),
+      promptText:
+      prompt.trim(),
+        ratio:
+          ratio,
+        
+        duration:
+          numericDuration,
+      });
 
-            ratio:
-              ratio,
+console.log(
+  "Runway task created:",
+  task.id
+);
 
-            duration:
-              numericDuration,
-          });
+      // ----------------------------------------
+      // LOG TASK
+      // ----------------------------------------
 
       console.log(
-        "Runway task created:",
+        "Runway task created successfully"
+      );
+
+      console.log(
+        "Runway task ID:",
         task.id
       );
 
+      console.log(
+        "Runway task status:",
+        task.status
+      );
+
       // ----------------------------------------
-      // Return task ID
+      // RETURN TASK ID
       // ----------------------------------------
 
       return res.status(202).json({
@@ -669,12 +633,40 @@ app.post(
 
     } catch (error) {
       console.error(
-        "Runway Text-to-Video error:"
+        "================================"
       );
 
-      console.error(error);
+      console.error(
+        "RUNWAY TEXT-TO-VIDEO ERROR"
+      );
 
-      return res.status(500).json({
+      console.error(
+        "================================"
+      );
+
+      console.error(
+        "Error message:",
+        error.message
+      );
+
+      console.error(
+        "Error status:",
+        error.status
+      );
+
+      console.error(
+        "Error response:",
+        error.response
+      );
+
+      console.error(
+        "Full error:",
+        error
+      );
+
+      return res.status(
+        error.status || 500
+      ).json({
         success: false,
 
         message:
@@ -683,6 +675,9 @@ app.post(
         error:
           error.message ||
           String(error),
+
+        status:
+          error.status || 500,
       });
     }
   }
@@ -696,6 +691,10 @@ app.get(
   "/api/videos/status/:taskId",
   async (req, res) => {
     try {
+      // ----------------------------------------
+      // Check Runway configuration
+      // ----------------------------------------
+
       if (!runway) {
         return res.status(500).json({
           success: false,
@@ -704,6 +703,10 @@ app.get(
             "Runway API is not configured.",
         });
       }
+
+      // ----------------------------------------
+      // Get task ID
+      // ----------------------------------------
 
       const taskId =
         req.params.taskId;
@@ -722,10 +725,23 @@ app.get(
         taskId
       );
 
+      // ----------------------------------------
+      // Get Runway task
+      // ----------------------------------------
+
       const task =
         await runway.tasks.retrieve(
           taskId
         );
+
+      console.log(
+        "Runway task status:",
+        task.status
+      );
+
+      // ----------------------------------------
+      // Return status
+      // ----------------------------------------
 
       return res.status(200).json({
         success: true,
@@ -768,6 +784,7 @@ app.get(
 
 // ============================================
 // 404 ROUTE
+// MUST ALWAYS BE LAST
 // ============================================
 
 app.use(
