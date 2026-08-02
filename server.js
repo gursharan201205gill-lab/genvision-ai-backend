@@ -1,8 +1,17 @@
+// ============================================================
+// GENVISION AI BACKEND
+// TEXT-TO-IMAGE HISTORY + IMAGE-TO-IMAGE WITH REPLICATE
+// ============================================================
+
 require("dotenv").config();
 
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+
+// ============================================================
+// APP
+// ============================================================
 
 const app = express();
 
@@ -17,13 +26,24 @@ const MONGO_URI = process.env.MONGO_URI;
 const REPLICATE_API_TOKEN =
   process.env.REPLICATE_API_TOKEN;
 
+console.log(
+  "Mongo URI exists:",
+  Boolean(MONGO_URI)
+);
+
+console.log(
+  "Replicate token exists:",
+  Boolean(REPLICATE_API_TOKEN)
+);
+
 // ============================================================
-// MIDDLEWARE
+// CORS
 // ============================================================
 
 app.use(
   cors({
     origin: "*",
+
     methods: [
       "GET",
       "POST",
@@ -31,6 +51,7 @@ app.use(
       "PUT",
       "OPTIONS",
     ],
+
     allowedHeaders: [
       "Content-Type",
       "Authorization",
@@ -38,19 +59,50 @@ app.use(
   })
 );
 
-// Base64 images can be large
+// ============================================================
+// BODY PARSERS
+// IMPORTANT FOR LARGE BASE64 IMAGES
+// ============================================================
+
 app.use(
   express.json({
-    limit: "50mb",
+    limit: "100mb",
+
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
   })
 );
 
 app.use(
   express.urlencoded({
     extended: true,
-    limit: "50mb",
+    limit: "100mb",
   })
 );
+
+// ============================================================
+// REQUEST ABORT HANDLING
+// ============================================================
+
+app.use((req, res, next) => {
+  req.on("aborted", () => {
+    console.error(
+      "REQUEST ABORTED:",
+      req.method,
+      req.originalUrl
+    );
+  });
+
+  req.on("error", (error) => {
+    console.error(
+      "REQUEST ERROR:",
+      error
+    );
+  });
+
+  next();
+});
 
 // ============================================================
 // MONGODB CONNECTION
@@ -62,10 +114,12 @@ if (!MONGO_URI) {
   );
 } else {
   mongoose
-    .connect(MONGO_URI)
+    .connect(MONGO_URI, {
+      serverSelectionTimeoutMS: 30000,
+    })
     .then(() => {
       console.log(
-        "MongoDB connected successfully"
+        "MongoDB connected successfully."
       );
     })
     .catch((error) => {
@@ -104,6 +158,7 @@ const imageSchema =
         default: Date.now,
       },
     },
+
     {
       timestamps: true,
     }
@@ -145,16 +200,18 @@ app.get(
     res.status(200).json({
       success: true,
 
-      message:
-        "Backend is healthy",
+      backend:
+        "Connected",
 
       mongodb:
-        mongoose.connection.readyState === 1,
+        mongoose.connection.readyState === 1
+          ? "Connected"
+          : "Disconnected",
 
       replicate:
-        Boolean(
-          REPLICATE_API_TOKEN
-        ),
+        REPLICATE_API_TOKEN
+          ? "Configured"
+          : "Not configured",
     });
   }
 );
@@ -167,12 +224,20 @@ app.get(
   "/api/images",
   async (req, res) => {
     try {
+      console.log(
+        "Fetching image history..."
+      );
+
       const images =
         await Image
           .find()
           .sort({
             createdAt: -1,
           });
+
+      console.log(
+        `Found ${images.length} images.`
+      );
 
       res.status(200).json(
         images
@@ -202,14 +267,23 @@ app.post(
   "/api/images",
   async (req, res) => {
     try {
+      console.log(
+        "Saving image to MongoDB..."
+      );
+
       const {
         prompt,
         image,
         type,
       } = req.body;
 
+      // ------------------------------------------
+      // VALIDATE PROMPT
+      // ------------------------------------------
+
       if (
         !prompt ||
+        typeof prompt !== "string" ||
         !prompt.trim()
       ) {
         return res.status(400).json({
@@ -220,7 +294,14 @@ app.post(
         });
       }
 
-      if (!image) {
+      // ------------------------------------------
+      // VALIDATE IMAGE
+      // ------------------------------------------
+
+      if (
+        !image ||
+        typeof image !== "string"
+      ) {
         return res.status(400).json({
           success: false,
 
@@ -229,12 +310,32 @@ app.post(
         });
       }
 
+      // ------------------------------------------
+      // CHECK MONGODB
+      // ------------------------------------------
+
+      if (
+        mongoose.connection.readyState !== 1
+      ) {
+        return res.status(503).json({
+          success: false,
+
+          error:
+            "MongoDB is not connected.",
+        });
+      }
+
+      // ------------------------------------------
+      // CREATE IMAGE
+      // ------------------------------------------
+
       const newImage =
         await Image.create({
           prompt:
             prompt.trim(),
 
-          image,
+          image:
+            image,
 
           type:
             type ||
@@ -242,11 +343,15 @@ app.post(
         });
 
       console.log(
-        "Image saved to MongoDB:",
+        "Image saved successfully:",
         newImage._id
       );
 
-      res.status(201).json({
+      // ------------------------------------------
+      // RETURN RESPONSE
+      // ------------------------------------------
+
+      return res.status(201).json({
         success: true,
 
         message:
@@ -262,10 +367,11 @@ app.post(
         error
       );
 
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
 
         error:
+          error.message ||
           "Failed to save image.",
       });
     }
@@ -298,7 +404,12 @@ app.delete(
         });
       }
 
-      res.status(200).json({
+      console.log(
+        "Image deleted:",
+        id
+      );
+
+      return res.status(200).json({
         success: true,
 
         message:
@@ -311,7 +422,7 @@ app.delete(
         error
       );
 
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
 
         error:
@@ -322,8 +433,7 @@ app.delete(
 );
 
 // ============================================================
-// IMAGE-TO-IMAGE GENERATION
-// REPLICATE
+// IMAGE-TO-IMAGE WITH REPLICATE
 // ============================================================
 
 app.post(
@@ -342,18 +452,48 @@ app.post(
         "===================================="
       );
 
-      // ------------------------------------------------------
-      // GET REQUEST DATA
-      // ------------------------------------------------------
+      // ------------------------------------------
+      // CHECK REPLICATE TOKEN
+      // ------------------------------------------
+
+      if (!REPLICATE_API_TOKEN) {
+        return res.status(500).json({
+          success: false,
+
+          error:
+            "Replicate is not configured. Please add REPLICATE_API_TOKEN to Render.",
+        });
+      }
+
+      // ------------------------------------------
+      // GET REQUEST BODY
+      // ------------------------------------------
 
       const {
         image,
         prompt,
       } = req.body;
 
-      // ------------------------------------------------------
+      console.log(
+        "Prompt received:",
+        prompt
+      );
+
+      console.log(
+        "Image received:",
+        Boolean(image)
+      );
+
+      if (image) {
+        console.log(
+          "Image data length:",
+          image.length
+        );
+      }
+
+      // ------------------------------------------
       // VALIDATE IMAGE
-      // ------------------------------------------------------
+      // ------------------------------------------
 
       if (
         !image ||
@@ -367,9 +507,9 @@ app.post(
         });
       }
 
-      // ------------------------------------------------------
+      // ------------------------------------------
       // VALIDATE PROMPT
-      // ------------------------------------------------------
+      // ------------------------------------------
 
       if (
         !prompt ||
@@ -384,43 +524,43 @@ app.post(
         });
       }
 
-      // ------------------------------------------------------
-      // CHECK REPLICATE TOKEN
-      // ------------------------------------------------------
+      // ------------------------------------------
+      // CHECK IMAGE SIZE
+      // ------------------------------------------
 
       if (
-        !REPLICATE_API_TOKEN
+        image.length >
+        90 * 1024 * 1024
       ) {
-        return res.status(500).json({
+        return res.status(413).json({
           success: false,
 
           error:
-            "REPLICATE_API_TOKEN is not configured.",
+            "Image is too large. Please upload a smaller image.",
         });
       }
 
       console.log(
-        "Replicate configured: TRUE"
+        "Starting Replicate image-to-image..."
       );
 
-      console.log(
-        "Prompt:",
-        prompt.trim()
-      );
+      // ------------------------------------------
+      // REPLICATE MODEL
+      // ------------------------------------------
 
-      console.log(
-        "Input image received."
-      );
+      const model =
+        "black-forest-labs/flux-kontext-pro";
 
-      // ------------------------------------------------------
-      // CALL REPLICATE
-      // ------------------------------------------------------
+      // ------------------------------------------
+      // CREATE REPLICATE PREDICTION
+      // ------------------------------------------
 
-      const replicateResponse =
+      const predictionResponse =
         await fetch(
-          "https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-pro/predictions",
+          `https://api.replicate.com/v1/models/${model}/predictions`,
           {
-            method: "POST",
+            method:
+              "POST",
 
             headers: {
               Authorization:
@@ -428,9 +568,6 @@ app.post(
 
               "Content-Type":
                 "application/json",
-
-              Prefer:
-                "wait",
             },
 
             body:
@@ -446,221 +583,182 @@ app.post(
           }
         );
 
-      const replicateData =
-        await replicateResponse.json();
+      const prediction =
+        await predictionResponse.json();
 
       console.log(
-        "Replicate HTTP status:",
-        replicateResponse.status
+        "Replicate prediction response:",
+        prediction
       );
 
-      console.log(
-        "Replicate response:",
-        replicateData
-      );
-
-      // ------------------------------------------------------
+      // ------------------------------------------
       // HANDLE REPLICATE ERROR
-      // ------------------------------------------------------
+      // ------------------------------------------
 
       if (
-        !replicateResponse.ok
+        !predictionResponse.ok
       ) {
         return res.status(
-          replicateResponse.status
+          predictionResponse.status
         ).json({
           success: false,
 
           error:
-            replicateData.detail ||
-            replicateData.error ||
+            prediction.detail ||
+            prediction.error ||
             "Replicate image generation failed.",
-
-          replicateResponse:
-            replicateData,
         });
       }
 
-      // ------------------------------------------------------
-      // GET OUTPUT
-      // ------------------------------------------------------
-
-      let output =
-        replicateData.output;
-
-      // If output is an array
-      if (
-        Array.isArray(output)
-      ) {
-        output =
-          output[0];
-      }
-
-      // ------------------------------------------------------
-      // IF OUTPUT NOT AVAILABLE
+      // ------------------------------------------
       // POLL PREDICTION
-      // ------------------------------------------------------
+      // ------------------------------------------
 
-      if (
-        !output &&
-        replicateData.urls &&
-        replicateData.urls.get
+      let result =
+        prediction;
+
+      let attempts = 0;
+
+      const maxAttempts =
+        60;
+
+      while (
+        result.status !==
+          "succeeded" &&
+        result.status !==
+          "failed" &&
+        result.status !==
+          "canceled" &&
+        attempts <
+          maxAttempts
       ) {
-        console.log(
-          "Prediction still running. Starting polling..."
+        await new Promise(
+          (resolve) =>
+            setTimeout(
+              resolve,
+              2000
+            )
         );
 
-        let prediction =
-          replicateData;
+        attempts++;
 
-        let attempts = 0;
+        console.log(
+          `Checking Replicate status... Attempt ${attempts}`
+        );
 
-        const maxAttempts =
-          60;
-
-        while (
-          prediction.status !==
-            "succeeded" &&
-          prediction.status !==
-            "failed" &&
-          prediction.status !==
-            "canceled" &&
-          attempts <
-            maxAttempts
-        ) {
-          await new Promise(
-            (resolve) =>
-              setTimeout(
-                resolve,
-                2000
-              )
+        const statusResponse =
+          await fetch(
+            result.urls.get,
+            {
+              headers: {
+                Authorization:
+                  `Bearer ${REPLICATE_API_TOKEN}`,
+              },
+            }
           );
 
-          attempts++;
+        result =
+          await statusResponse.json();
 
-          console.log(
-            "Polling attempt:",
-            attempts
-          );
-
-          const statusResponse =
-            await fetch(
-              prediction.urls.get,
-              {
-                headers: {
-                  Authorization:
-                    `Bearer ${REPLICATE_API_TOKEN}`,
-                },
-              }
-            );
-
-          prediction =
-            await statusResponse.json();
-
-          console.log(
-            "Prediction status:",
-            prediction.status
-          );
-        }
-
-        if (
-          prediction.status !==
-          "succeeded"
-        ) {
-          console.error(
-            "Replicate prediction failed:",
-            prediction
-          );
-
-          return res.status(500).json({
-            success: false,
-
-            error:
-              prediction.error ||
-              "Image-to-image generation failed.",
-          });
-        }
-
-        output =
-          prediction.output;
-
-        if (
-          Array.isArray(output)
-        ) {
-          output =
-            output[0];
-        }
+        console.log(
+          "Replicate status:",
+          result.status
+        );
       }
 
-      // ------------------------------------------------------
-      // CHECK OUTPUT
-      // ------------------------------------------------------
+      // ------------------------------------------
+      // CHECK FINAL STATUS
+      // ------------------------------------------
 
-      if (!output) {
+      if (
+        result.status !==
+        "succeeded"
+      ) {
         console.error(
-          "No output from Replicate."
+          "Replicate generation failed:",
+          result
         );
 
         return res.status(500).json({
           success: false,
 
           error:
-            "Replicate returned no generated image.",
+            result.error ||
+            "Image-to-image generation failed.",
+        });
+      }
+
+      // ------------------------------------------
+      // GET OUTPUT
+      // ------------------------------------------
+
+      let outputUrl =
+        result.output;
+
+      if (
+        Array.isArray(
+          outputUrl
+        )
+      ) {
+        outputUrl =
+          outputUrl[0];
+      }
+
+      if (
+        !outputUrl
+      ) {
+        return res.status(500).json({
+          success: false,
+
+          error:
+            "Replicate returned no output image.",
         });
       }
 
       console.log(
-        "Generated image URL:",
-        output
+        "Replicate output URL:",
+        outputUrl
       );
 
-      // ------------------------------------------------------
-      // DOWNLOAD GENERATED IMAGE
-      // ------------------------------------------------------
+      // ------------------------------------------
+      // DOWNLOAD OUTPUT
+      // ------------------------------------------
 
-      const generatedImageResponse =
+      const imageResponse =
         await fetch(
-          output
+          outputUrl
         );
 
       if (
-        !generatedImageResponse.ok
+        !imageResponse.ok
       ) {
         throw new Error(
-          "Could not download generated image from Replicate."
+          "Could not download generated image."
         );
       }
 
       const imageBuffer =
         Buffer.from(
-          await generatedImageResponse.arrayBuffer()
+          await imageResponse.arrayBuffer()
         );
-
-      if (
-        imageBuffer.length === 0
-      ) {
-        throw new Error(
-          "Generated image is empty."
-        );
-      }
 
       console.log(
         "Generated image size:",
         imageBuffer.length
       );
 
-      // ------------------------------------------------------
+      // ------------------------------------------
       // CONVERT TO BASE64
-      // ------------------------------------------------------
+      // ------------------------------------------
 
       const base64Image =
         `data:image/png;base64,${imageBuffer.toString(
           "base64"
         )}`;
 
-      // ------------------------------------------------------
+      // ------------------------------------------
       // SAVE TO MONGODB
-      // ------------------------------------------------------
+      // ------------------------------------------
 
       const savedImage =
         await Image.create({
@@ -675,13 +773,13 @@ app.post(
         });
 
       console.log(
-        "Image-to-image saved to MongoDB:",
+        "Edited image saved to MongoDB:",
         savedImage._id
       );
 
-      // ------------------------------------------------------
-      // RETURN RESULT
-      // ------------------------------------------------------
+      // ------------------------------------------
+      // RETURN RESPONSE
+      // ------------------------------------------
 
       return res.status(200).json({
         success: true,
@@ -694,9 +792,6 @@ app.post(
 
         id:
           savedImage._id,
-
-        type:
-          "image-to-image",
       });
 
     } catch (error) {
@@ -749,6 +844,56 @@ app.use(
 );
 
 // ============================================================
+// GLOBAL ERROR HANDLER
+// ============================================================
+
+app.use(
+  (
+    error,
+    req,
+    res,
+    next
+  ) => {
+    console.error(
+      "GLOBAL SERVER ERROR:",
+      error
+    );
+
+    if (
+      error.type ===
+      "entity.too.large"
+    ) {
+      return res.status(413).json({
+        success: false,
+
+        error:
+          "Request is too large. Please upload a smaller image.",
+      });
+    }
+
+    if (
+      error.type ===
+      "request.aborted"
+    ) {
+      return res.status(400).json({
+        success: false,
+
+        error:
+          "Request was aborted. Please try again with a smaller image.",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+
+      error:
+        error.message ||
+        "Internal server error.",
+    });
+  }
+);
+
+// ============================================================
 // START SERVER
 // ============================================================
 
@@ -758,13 +903,6 @@ app.listen(
   () => {
     console.log(
       `GenVision AI Backend running on port ${PORT}`
-    );
-
-    console.log(
-      "Replicate configured:",
-      Boolean(
-        REPLICATE_API_TOKEN
-      )
     );
   }
 );
