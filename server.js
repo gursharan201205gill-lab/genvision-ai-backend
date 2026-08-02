@@ -1,86 +1,41 @@
-// ============================================
-// GENVISION AI - BACKEND SERVER
-// IMAGE HISTORY + FAL.AI TEXT TO VIDEO
-// ============================================
-
 require("dotenv").config();
 
-const dns = require("dns");
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const { fal } = require("@fal-ai/client");
-
-// ============================================
-// APP
-// ============================================
 
 const app = express();
 
-// ============================================
-// PORT
-// ============================================
+// ============================================================
+// CONFIGURATION
+// ============================================================
 
 const PORT = process.env.PORT || 5000;
 
-// ============================================
-// ENVIRONMENT VARIABLES
-// ============================================
+const FRONTEND_URL =
+  process.env.FRONTEND_URL ||
+  "https://genvision-ai-nu.vercel.app";
 
-const MONGO_URI = process.env.MONGO_URI;
-const FAL_KEY = process.env.FAL_KEY;
+const MONGO_URI =
+  process.env.MONGO_URI;
 
-console.log("================================");
-console.log("GENVISION AI BACKEND STARTING");
-console.log("================================");
+const REPLICATE_API_TOKEN =
+  process.env.REPLICATE_API_TOKEN;
 
-console.log(
-  "Mongo URI exists:",
-  Boolean(MONGO_URI)
-);
-
-console.log(
-  "FAL API key exists:",
-  Boolean(FAL_KEY)
-);
-
-// ============================================
-// DNS DEBUG
-// ============================================
-
-dns.lookup(
-  "ac-o3lai0r-shard-00-00.6oa6djk.mongodb.net",
-  (err, address, family) => {
-    if (err) {
-      console.error(
-        "DNS LOOKUP ERROR:",
-        err
-      );
-    } else {
-      console.log(
-        "DNS LOOKUP SUCCESS:",
-        address,
-        "IPv" + family
-      );
-    }
-  }
-);
-
-// ============================================
+// ============================================================
 // MIDDLEWARE
-// ============================================
+// ============================================================
 
 app.use(
   cors({
     origin: "*",
-
     methods: [
       "GET",
       "POST",
       "DELETE",
+      "PUT",
       "OPTIONS",
     ],
-
     allowedHeaders: [
       "Content-Type",
       "Authorization",
@@ -88,127 +43,77 @@ app.use(
   })
 );
 
-// ============================================
-// JSON BODY PARSER
-// ============================================
-
 app.use(
   express.json({
-    limit: "50mb",
+    limit: "30mb",
   })
 );
 
-// ============================================
-// REQUEST LOGGER
-// ============================================
-
 app.use(
-  (req, res, next) => {
-    console.log(
-      `${new Date().toISOString()} - ${req.method} ${req.originalUrl}`
-    );
-
-    next();
-  }
+  express.urlencoded({
+    extended: true,
+    limit: "30mb",
+  })
 );
 
-// ============================================
-// FAL.AI CONFIGURATION
-// ============================================
+// ============================================================
+// STARTUP CONFIGURATION LOGS
+// ============================================================
 
-if (FAL_KEY) {
-  fal.config({
-    credentials: FAL_KEY,
-  });
+console.log(
+  "============================================"
+);
 
-  console.log(
-    "fal.ai client initialized successfully"
-  );
-} else {
-  console.error(
-    "WARNING: FAL_KEY is missing."
-  );
-}
+console.log(
+  "GENVISION AI BACKEND STARTING"
+);
 
-// ============================================
+console.log(
+  "MongoDB configured:",
+  Boolean(MONGO_URI)
+);
+
+console.log(
+  "Replicate configured:",
+  Boolean(REPLICATE_API_TOKEN)
+);
+
+console.log(
+  "Frontend URL:",
+  FRONTEND_URL
+);
+
+console.log(
+  "============================================"
+);
+
+// ============================================================
 // MONGODB CONNECTION
-// ============================================
+// ============================================================
 
 if (!MONGO_URI) {
-
   console.error(
-    "ERROR: MONGO_URI is missing from environment variables."
+    "ERROR: MONGO_URI is not configured."
   );
-
 } else {
-
   mongoose
-    .connect(MONGO_URI, {
-      serverSelectionTimeoutMS: 30000,
-    })
-
+    .connect(MONGO_URI)
     .then(() => {
-
       console.log(
         "MongoDB connected successfully"
       );
-
     })
-
     .catch((error) => {
-
       console.error(
-        "MongoDB connection error:"
-      );
-
-      console.error(
+        "MongoDB connection error:",
         error
       );
-
     });
 }
 
-// ============================================
-// MONGODB CONNECTION EVENTS
-// ============================================
-
-mongoose.connection.on(
-  "connected",
-  () => {
-
-    console.log(
-      "MongoDB connection event: connected"
-    );
-
-  }
-);
-
-mongoose.connection.on(
-  "error",
-  (error) => {
-
-    console.error(
-      "MongoDB connection event error:",
-      error
-    );
-
-  }
-);
-
-mongoose.connection.on(
-  "disconnected",
-  () => {
-
-    console.log(
-      "MongoDB connection event: disconnected"
-    );
-
-  }
-);
-
-// ============================================
+// ============================================================
 // IMAGE SCHEMA
-// ============================================
+// ============================================================
 
 const imageSchema =
   new mongoose.Schema(
@@ -224,6 +129,11 @@ const imageSchema =
         required: true,
       },
 
+      type: {
+        type: String,
+        default: "text-to-image",
+      },
+
       createdAt: {
         type: Date,
         default: Date.now,
@@ -235,9 +145,9 @@ const imageSchema =
     }
   );
 
-// ============================================
+// ============================================================
 // IMAGE MODEL
-// ============================================
+// ============================================================
 
 const Image =
   mongoose.model(
@@ -245,247 +155,54 @@ const Image =
     imageSchema
   );
 
-// ============================================
+// ============================================================
 // ROOT ROUTE
-// ============================================
+// ============================================================
 
 app.get(
   "/",
   (req, res) => {
-
     res.status(200).json({
-
-      success:
-        true,
+      success: true,
 
       message:
         "GenVision AI Backend is Running!",
-
     });
-
   }
 );
 
-// ============================================
+// ============================================================
 // HEALTH CHECK
-// ============================================
+// ============================================================
 
 app.get(
   "/api/health",
   (req, res) => {
-
     res.status(200).json({
+      success: true,
 
-      success:
-        true,
-
-      server:
-        "Backend is running",
+      message:
+        "Backend is healthy",
 
       mongodb:
-        mongoose.connection.readyState === 1
-          ? "Connected"
-          : "Disconnected",
+        mongoose.connection.readyState === 1,
 
-      fal:
-        FAL_KEY
-          ? "Configured"
-          : "Not configured",
-
+      replicate:
+        Boolean(
+          REPLICATE_API_TOKEN
+        ),
     });
-
   }
 );
 
-// ============================================
-// SAVE GENERATED IMAGE
-// ============================================
-
-app.post(
-  "/api/images",
-  async (req, res) => {
-
-    try {
-
-      console.log(
-        "Received request to save image"
-      );
-
-      const {
-        prompt,
-        image,
-      } = req.body;
-
-      // ----------------------------------------
-      // VALIDATE PROMPT
-      // ----------------------------------------
-
-      if (
-        !prompt ||
-        typeof prompt !== "string" ||
-        !prompt.trim()
-      ) {
-
-        return res.status(400).json({
-
-          success:
-            false,
-
-          message:
-            "A valid prompt is required.",
-
-        });
-
-      }
-
-      // ----------------------------------------
-      // VALIDATE IMAGE
-      // ----------------------------------------
-
-      if (
-        !image ||
-        typeof image !== "string"
-      ) {
-
-        return res.status(400).json({
-
-          success:
-            false,
-
-          message:
-            "A valid image is required.",
-
-        });
-
-      }
-
-      // ----------------------------------------
-      // CHECK MONGODB
-      // ----------------------------------------
-
-      if (
-        mongoose.connection.readyState !== 1
-      ) {
-
-        return res.status(503).json({
-
-          success:
-            false,
-
-          message:
-            "MongoDB is not connected.",
-
-        });
-
-      }
-
-      // ----------------------------------------
-      // CREATE IMAGE
-      // ----------------------------------------
-
-      const newImage =
-        new Image({
-
-          prompt:
-            prompt.trim(),
-
-          image:
-            image,
-
-        });
-
-      // ----------------------------------------
-      // SAVE IMAGE
-      // ----------------------------------------
-
-      const savedImage =
-        await newImage.save();
-
-      console.log(
-        "Image saved successfully:",
-        savedImage._id
-      );
-
-      // ----------------------------------------
-      // RETURN RESPONSE
-      // ----------------------------------------
-
-      return res.status(201).json({
-
-        success:
-          true,
-
-        message:
-          "Image saved successfully.",
-
-        image:
-          savedImage,
-
-      });
-
-    } catch (error) {
-
-      console.error(
-        "Error saving image:",
-        error
-      );
-
-      return res.status(500).json({
-
-        success:
-          false,
-
-        message:
-          "Failed to save image.",
-
-        error:
-          error.message,
-
-      });
-
-    }
-
-  }
-);
-
-// ============================================
-// GET ALL SAVED IMAGES
-// ============================================
+// ============================================================
+// GET IMAGE HISTORY
+// ============================================================
 
 app.get(
   "/api/images",
   async (req, res) => {
-
     try {
-
-      console.log(
-        "Fetching image history..."
-      );
-
-      // ----------------------------------------
-      // CHECK MONGODB
-      // ----------------------------------------
-
-      if (
-        mongoose.connection.readyState !== 1
-      ) {
-
-        return res.status(503).json({
-
-          success:
-            false,
-
-          message:
-            "MongoDB is not connected.",
-
-        });
-
-      }
-
-      // ----------------------------------------
-      // GET IMAGES
-      // ----------------------------------------
-
       const images =
         await Image
           .find()
@@ -493,469 +210,613 @@ app.get(
             createdAt: -1,
           });
 
-      console.log(
-        `Found ${images.length} saved images`
-      );
-
-      return res.status(200).json(
+      res.status(200).json(
         images
       );
 
     } catch (error) {
-
       console.error(
-        "Error fetching image history:",
+        "GET IMAGE HISTORY ERROR:",
         error
       );
 
-      return res.status(500).json({
-
-        success:
-          false,
-
-        message:
-          "Failed to fetch image history.",
+      res.status(500).json({
+        success: false,
 
         error:
-          error.message,
-
+          "Failed to load image history.",
       });
-
     }
-
   }
 );
 
-// ============================================
-// GET ONE IMAGE
-// ============================================
+// ============================================================
+// SAVE IMAGE TO HISTORY
+// ============================================================
 
-app.get(
-  "/api/images/:id",
+app.post(
+  "/api/images",
   async (req, res) => {
-
     try {
+      const {
+        prompt,
+        image,
+        type,
+      } = req.body;
 
-      const image =
-        await Image.findById(
-          req.params.id
-        );
+      // ------------------------------------------
+      // VALIDATE PROMPT
+      // ------------------------------------------
 
-      if (!image) {
+      if (
+        !prompt ||
+        !prompt.trim()
+      ) {
+        return res.status(400).json({
+          success: false,
 
-        return res.status(404).json({
-
-          success:
-            false,
-
-          message:
-            "Image not found.",
-
+          error:
+            "Prompt is required.",
         });
-
       }
 
-      return res.status(200).json(
-        image
+      // ------------------------------------------
+      // VALIDATE IMAGE
+      // ------------------------------------------
+
+      if (
+        !image ||
+        typeof image !== "string"
+      ) {
+        return res.status(400).json({
+          success: false,
+
+          error:
+            "Image data is required.",
+        });
+      }
+
+      // ------------------------------------------
+      // CHECK MONGODB
+      // ------------------------------------------
+
+      if (
+        mongoose.connection.readyState !==
+        1
+      ) {
+        return res.status(503).json({
+          success: false,
+
+          error:
+            "MongoDB is not connected.",
+        });
+      }
+
+      // ------------------------------------------
+      // SAVE IMAGE
+      // ------------------------------------------
+
+      const newImage =
+        await Image.create({
+          prompt:
+            prompt.trim(),
+
+          image,
+
+          type:
+            type ||
+            "text-to-image",
+        });
+
+      console.log(
+        "Image saved to MongoDB:",
+        newImage._id
       );
 
-    } catch (error) {
+      return res.status(201).json({
+        success: true,
 
+        message:
+          "Image saved successfully.",
+
+        image:
+          newImage,
+      });
+
+    } catch (error) {
       console.error(
-        "Error fetching image:",
+        "SAVE IMAGE ERROR:",
         error
       );
 
       return res.status(500).json({
-
-        success:
-          false,
-
-        message:
-          "Failed to fetch image.",
+        success: false,
 
         error:
-          error.message,
-
+          "Failed to save image.",
       });
-
     }
-
   }
 );
 
-// ============================================
-// DELETE IMAGE
-// ============================================
+// ============================================================
+// DELETE IMAGE FROM HISTORY
+// ============================================================
 
 app.delete(
   "/api/images/:id",
   async (req, res) => {
-
     try {
+      const {
+        id,
+      } = req.params;
 
       const deletedImage =
         await Image.findByIdAndDelete(
-          req.params.id
+          id
         );
 
       if (!deletedImage) {
-
         return res.status(404).json({
+          success: false,
 
-          success:
-            false,
-
-          message:
+          error:
             "Image not found.",
-
         });
-
       }
 
       console.log(
         "Image deleted:",
-        req.params.id
+        id
       );
 
       return res.status(200).json({
-
-        success:
-          true,
+        success: true,
 
         message:
           "Image deleted successfully.",
-
       });
 
     } catch (error) {
-
       console.error(
-        "Error deleting image:",
+        "DELETE IMAGE ERROR:",
         error
       );
 
       return res.status(500).json({
-
-        success:
-          false,
-
-        message:
-          "Failed to delete image.",
+        success: false,
 
         error:
-          error.message,
-
+          "Failed to delete image.",
       });
-
     }
-
   }
 );
 
-// ============================================
-// FAL.AI TEXT TO VIDEO
-// ============================================
+// ============================================================
+// IMAGE-TO-IMAGE GENERATION
+//
+// FRONTEND SENDS:
+//
+// {
+//   image: "data:image/png;base64,...",
+//   prompt: "Transform this image..."
+// }
+//
+// FLOW:
+//
+// App.jsx
+//    ↓
+// POST /api/images/edit
+//    ↓
+// Replicate
+//    ↓
+// Generated image
+//    ↓
+// MongoDB
+//    ↓
+// App.jsx
+// ============================================================
 
 app.post(
-  "/api/videos/generate",
+  "/api/images/edit",
   async (req, res) => {
-
-    console.log(
-      "================================"
-    );
-
-    console.log(
-      "FAL TEXT-TO-VIDEO REQUEST RECEIVED"
-    );
-
-    console.log(
-      "================================"
-    );
-
     try {
-
-      // ----------------------------------------
-      // CHECK FAL KEY
-      // ----------------------------------------
-
-      if (!FAL_KEY) {
-
-        console.error(
-          "FAL_KEY is missing."
-        );
-
-        return res.status(500).json({
-
-          success:
-            false,
-
-          message:
-            "FAL_KEY is missing from environment variables.",
-
-        });
-
-      }
-
-      // ----------------------------------------
-      // GET REQUEST BODY
-      // ----------------------------------------
-
       console.log(
-        "Request body:",
-        req.body
+        "============================================"
       );
 
+      console.log(
+        "IMAGE-TO-IMAGE REQUEST RECEIVED"
+      );
+
+      // ------------------------------------------
+      // GET REQUEST DATA
+      // ------------------------------------------
+
       const {
+        image,
         prompt,
       } = req.body;
 
-      // ----------------------------------------
+      // ------------------------------------------
+      // VALIDATE IMAGE
+      // ------------------------------------------
+
+      if (
+        !image ||
+        typeof image !== "string"
+      ) {
+        return res.status(400).json({
+          success: false,
+
+          error:
+            "Input image is required.",
+        });
+      }
+
+      // ------------------------------------------
       // VALIDATE PROMPT
-      // ----------------------------------------
+      // ------------------------------------------
 
       if (
         !prompt ||
         typeof prompt !== "string" ||
         !prompt.trim()
       ) {
-
-        console.error(
-          "Invalid video prompt."
-        );
-
         return res.status(400).json({
+          success: false,
 
-          success:
-            false,
-
-          message:
-            "A valid video prompt is required.",
-
+          error:
+            "Modification prompt is required.",
         });
-
       }
 
-      // ----------------------------------------
-      // VALIDATE PROMPT LENGTH
-      // ----------------------------------------
+      // ------------------------------------------
+      // CHECK REPLICATE TOKEN
+      // ------------------------------------------
 
       if (
-        prompt.trim().length > 1000
+        !REPLICATE_API_TOKEN
       ) {
-
-        return res.status(400).json({
-
-          success:
-            false,
-
-          message:
-            "Video prompt must be 1000 characters or less.",
-
-        });
-
-      }
-
-      console.log(
-        "Video prompt:",
-        prompt.trim()
-      );
-
-      // ----------------------------------------
-      // CALL FAL.AI
-      // ----------------------------------------
-
-      console.log(
-        "Sending request to fal.ai..."
-      );
-
-      const result =
-        await fal.subscribe(
-          "fal-ai/kling-video/v3/turbo/standard/text-to-video",
-          {
-
-            input: {
-
-              prompt:
-                prompt.trim(),
-
-            },
-
-            logs:
-              true,
-
-            onQueueUpdate:
-              (update) => {
-
-                console.log(
-                  "fal.ai queue status:",
-                  update.status
-                );
-
-                if (
-                  update.status ===
-                  "IN_PROGRESS"
-                ) {
-
-                  if (
-                    update.logs
-                  ) {
-
-                    update.logs
-                      .map(
-                        (log) =>
-                          log.message
-                      )
-                      .forEach(
-                        (message) => {
-
-                          console.log(
-                            "fal.ai:",
-                            message
-                          );
-
-                        }
-                      );
-
-                  }
-
-                }
-
-              },
-
-          }
-        );
-
-      // ----------------------------------------
-      // PRINT RESULT
-      // ----------------------------------------
-
-      console.log(
-        "fal.ai generation completed."
-      );
-
-      console.log(
-        "fal.ai result:",
-        JSON.stringify(
-          result.data,
-          null,
-          2
-        )
-      );
-
-      // ----------------------------------------
-      // GET VIDEO URL
-      // ----------------------------------------
-
-      const videoUrl =
-        result.data?.video?.url ||
-        result.data?.video_url ||
-        null;
-
-      // ----------------------------------------
-      // CHECK VIDEO URL
-      // ----------------------------------------
-
-      if (!videoUrl) {
-
         console.error(
-          "No video URL returned by fal.ai."
+          "REPLICATE_API_TOKEN is missing."
         );
 
         return res.status(500).json({
+          success: false,
 
-          success:
-            false,
-
-          message:
-            "Video generation completed but no video URL was returned.",
-
-          data:
-            result.data ||
-            null,
-
+          error:
+            "Replicate is not configured. Add REPLICATE_API_TOKEN to Render environment variables.",
         });
-
       }
 
-      // ----------------------------------------
-      // SUCCESS
-      // ----------------------------------------
-
       console.log(
-        "================================"
+        "Replicate configured: YES"
       );
 
       console.log(
-        "VIDEO GENERATED SUCCESSFULLY"
+        "Image-to-image prompt:",
+        prompt.trim()
+      );
+
+      // ------------------------------------------
+      // REPLICATE MODEL
+      // ------------------------------------------
+
+      const model =
+        "black-forest-labs/flux-kontext-pro";
+
+      const replicateUrl =
+        `https://api.replicate.com/v1/models/${model}/predictions`;
+
+      console.log(
+        "Calling Replicate model:",
+        model
+      );
+
+      // ------------------------------------------
+      // CREATE REPLICATE PREDICTION
+      // ------------------------------------------
+
+      const predictionResponse =
+        await fetch(
+          replicateUrl,
+          {
+            method: "POST",
+
+            headers: {
+              Authorization:
+                `Bearer ${REPLICATE_API_TOKEN}`,
+
+              "Content-Type":
+                "application/json",
+
+              Prefer:
+                "wait",
+            },
+
+            body:
+              JSON.stringify({
+                input: {
+                  prompt:
+                    prompt.trim(),
+
+                  input_image:
+                    image,
+                },
+              }),
+          }
+        );
+
+      const prediction =
+        await predictionResponse.json();
+
+      console.log(
+        "Replicate HTTP status:",
+        predictionResponse.status
       );
 
       console.log(
-        "Video URL:",
-        videoUrl
+        "Replicate prediction status:",
+        prediction.status
       );
+
+      // ------------------------------------------
+      // HANDLE REPLICATE ERROR
+      // ------------------------------------------
+
+      if (
+        !predictionResponse.ok
+      ) {
+        console.error(
+          "REPLICATE API ERROR:",
+          prediction
+        );
+
+        return res.status(
+          predictionResponse.status
+        ).json({
+          success: false,
+
+          error:
+            prediction.detail ||
+            prediction.error ||
+            "Replicate image generation failed.",
+
+          details:
+            prediction,
+        });
+      }
+
+      // ------------------------------------------
+      // WAIT FOR PREDICTION IF NEEDED
+      // ------------------------------------------
+
+      let result =
+        prediction;
+
+      let attempts = 0;
+
+      const maxAttempts =
+        60;
+
+      while (
+        result.status !==
+          "succeeded" &&
+        result.status !==
+          "failed" &&
+        result.status !==
+          "canceled" &&
+        attempts <
+          maxAttempts
+      ) {
+        console.log(
+          `Waiting for Replicate... Attempt ${attempts + 1}`
+        );
+
+        await new Promise(
+          (resolve) =>
+            setTimeout(
+              resolve,
+              2000
+            )
+        );
+
+        attempts++;
+
+        if (
+          !result.urls ||
+          !result.urls.get
+        ) {
+          break;
+        }
+
+        const statusResponse =
+          await fetch(
+            result.urls.get,
+            {
+              headers: {
+                Authorization:
+                  `Bearer ${REPLICATE_API_TOKEN}`,
+              },
+            }
+          );
+
+        result =
+          await statusResponse.json();
+
+        console.log(
+          "Current Replicate status:",
+          result.status
+        );
+      }
+
+      // ------------------------------------------
+      // CHECK FINAL STATUS
+      // ------------------------------------------
+
+      if (
+        result.status !==
+        "succeeded"
+      ) {
+        console.error(
+          "REPLICATE GENERATION FAILED:",
+          result
+        );
+
+        return res.status(500).json({
+          success: false,
+
+          error:
+            result.error ||
+            "Image-to-image generation failed.",
+
+          status:
+            result.status,
+        });
+      }
+
+      // ------------------------------------------
+      // GET OUTPUT
+      // ------------------------------------------
+
+      let outputUrl =
+        result.output;
+
+      if (
+        Array.isArray(
+          outputUrl
+        )
+      ) {
+        outputUrl =
+          outputUrl[0];
+      }
+
+      if (
+        !outputUrl
+      ) {
+        console.error(
+          "Replicate returned no output:",
+          result
+        );
+
+        return res.status(500).json({
+          success: false,
+
+          error:
+            "Replicate returned no generated image.",
+        });
+      }
 
       console.log(
-        "================================"
+        "Generated image URL:",
+        outputUrl
       );
 
-      // ----------------------------------------
-      // RETURN VIDEO
-      // ----------------------------------------
+      // ------------------------------------------
+      // DOWNLOAD OUTPUT IMAGE
+      // ------------------------------------------
+
+      const imageResponse =
+        await fetch(
+          outputUrl
+        );
+
+      if (
+        !imageResponse.ok
+      ) {
+        throw new Error(
+          "Could not download generated image from Replicate."
+        );
+      }
+
+      const imageBuffer =
+        Buffer.from(
+          await imageResponse.arrayBuffer()
+        );
+
+      if (
+        imageBuffer.length === 0
+      ) {
+        throw new Error(
+          "Generated image is empty."
+        );
+      }
+
+      console.log(
+        "Generated image size:",
+        imageBuffer.length,
+        "bytes"
+      );
+
+      // ------------------------------------------
+      // CONVERT TO BASE64
+      // ------------------------------------------
+
+      const base64Image =
+        `data:image/png;base64,${imageBuffer.toString(
+          "base64"
+        )}`;
+
+      // ------------------------------------------
+      // SAVE TO MONGODB
+      // ------------------------------------------
+
+      const savedImage =
+        await Image.create({
+          prompt:
+            prompt.trim(),
+
+          image:
+            base64Image,
+
+          type:
+            "image-to-image",
+        });
+
+      console.log(
+        "Image-to-image saved to MongoDB:",
+        savedImage._id
+      );
+
+      // ------------------------------------------
+      // RETURN RESULT
+      // ------------------------------------------
 
       return res.status(200).json({
-
-        success:
-          true,
+        success: true,
 
         message:
-          "Video generated successfully.",
+          "Image transformed successfully.",
 
-        videoUrl:
-          videoUrl,
+        image:
+          base64Image,
 
-        requestId:
-          result.requestId ||
-          null,
+        id:
+          savedImage._id,
 
+        type:
+          "image-to-image",
       });
 
     } catch (error) {
-
-      // ----------------------------------------
-      // ERROR LOGGING
-      // ----------------------------------------
-
       console.error(
-        "================================"
+        "============================================"
       );
 
       console.error(
-        "FAL TEXT-TO-VIDEO ERROR"
-      );
-
-      console.error(
-        "================================"
+        "IMAGE-TO-IMAGE ERROR"
       );
 
       console.error(
         "Error name:",
-        error?.name
+        error.name
       );
 
       console.error(
         "Error message:",
-        error?.message
-      );
-
-      console.error(
-        "Error status:",
-        error?.status
-      );
-
-      console.error(
-        "Error code:",
-        error?.code
+        error.message
       );
 
       console.error(
@@ -964,59 +825,38 @@ app.post(
       );
 
       console.error(
-        "================================"
+        "============================================"
       );
 
-      return res.status(
-        error?.status || 500
-      ).json({
-
-        success:
-          false,
-
-        message:
-          "Failed to generate video.",
+      return res.status(500).json({
+        success: false,
 
         error:
-          error?.message ||
-          String(error),
-
+          error.message ||
+          "Image-to-image generation failed.",
       });
-
     }
-
   }
 );
 
-// ============================================
+// ============================================================
 // 404 ROUTE
-// ============================================
+// ============================================================
 
 app.use(
   (req, res) => {
+    res.status(404).json({
+      success: false,
 
-    console.log(
-      "404 ROUTE NOT FOUND:",
-      req.method,
-      req.originalUrl
-    );
-
-    return res.status(404).json({
-
-      success:
-        false,
-
-      message:
+      error:
         "Route not found.",
-
     });
-
   }
 );
 
-// ============================================
+// ============================================================
 // GLOBAL ERROR HANDLER
-// ============================================
+// ============================================================
 
 app.use(
   (
@@ -1025,73 +865,30 @@ app.use(
     res,
     next
   ) => {
-
     console.error(
-      "================================"
-    );
-
-    console.error(
-      "GLOBAL SERVER ERROR"
-    );
-
-    console.error(
-      "================================"
-    );
-
-    console.error(
+      "GLOBAL SERVER ERROR:",
       error
     );
 
-    if (
-      res.headersSent
-    ) {
+    res.status(500).json({
+      success: false,
 
-      return next(
-        error
-      );
-
-    }
-
-    return res.status(
-      error.status || 500
-    ).json({
-
-      success:
-        false,
-
-      message:
-        error.message ||
+      error:
         "Internal server error.",
-
     });
-
   }
 );
 
-// ============================================
+// ============================================================
 // START SERVER
-// ============================================
+// ============================================================
 
 app.listen(
   PORT,
   "0.0.0.0",
   () => {
-
     console.log(
-      "================================"
+      `GenVision AI Backend running on port ${PORT}`
     );
-
-    console.log(
-      `Backend server running on port ${PORT}`
-    );
-
-    console.log(
-      `Health check: http://localhost:${PORT}/api/health`
-    );
-
-    console.log(
-      "================================"
-    );
-
   }
 );
