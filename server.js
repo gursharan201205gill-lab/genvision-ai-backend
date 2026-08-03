@@ -1,6 +1,8 @@
 // ============================================================
 // GENVISION AI BACKEND
-// TEXT-TO-IMAGE HISTORY + IMAGE-TO-IMAGE WITH REPLICATE
+// TEXT-TO-IMAGE HISTORY
+// IMAGE-TO-IMAGE WITH REPLICATE
+// MONGODB ATLAS
 // ============================================================
 
 require("dotenv").config();
@@ -26,6 +28,9 @@ const MONGO_URI = process.env.MONGO_URI;
 const REPLICATE_API_TOKEN =
   process.env.REPLICATE_API_TOKEN;
 
+const FRONTEND_URL =
+  process.env.FRONTEND_URL || "*";
+
 console.log(
   "Mongo URI exists:",
   Boolean(MONGO_URI)
@@ -40,37 +45,46 @@ console.log(
 // CORS
 // ============================================================
 
-app.use(
-  cors({
-    origin: "*",
+const corsOptions =
+  FRONTEND_URL === "*"
+    ? {
+        origin: "*",
+        methods: [
+          "GET",
+          "POST",
+          "DELETE",
+          "PUT",
+          "OPTIONS",
+        ],
+        allowedHeaders: [
+          "Content-Type",
+          "Authorization",
+        ],
+      }
+    : {
+        origin: FRONTEND_URL,
+        methods: [
+          "GET",
+          "POST",
+          "DELETE",
+          "PUT",
+          "OPTIONS",
+        ],
+        allowedHeaders: [
+          "Content-Type",
+          "Authorization",
+        ],
+      };
 
-    methods: [
-      "GET",
-      "POST",
-      "DELETE",
-      "PUT",
-      "OPTIONS",
-    ],
-
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-    ],
-  })
-);
+app.use(cors(corsOptions));
 
 // ============================================================
 // BODY PARSERS
-// IMPORTANT FOR LARGE BASE64 IMAGES
 // ============================================================
 
 app.use(
   express.json({
     limit: "100mb",
-
-    verify: (req, res, buf) => {
-      req.rawBody = buf;
-    },
   })
 );
 
@@ -108,27 +122,73 @@ app.use((req, res, next) => {
 // MONGODB CONNECTION
 // ============================================================
 
-if (!MONGO_URI) {
-  console.error(
-    "ERROR: MONGO_URI is not configured."
-  );
-} else {
-  mongoose
-    .connect(MONGO_URI, {
-      serverSelectionTimeoutMS: 30000,
-    })
-    .then(() => {
-      console.log(
-        "MongoDB connected successfully."
-      );
-    })
-    .catch((error) => {
-      console.error(
-        "MongoDB connection error:",
-        error
-      );
-    });
+let mongoConnected = false;
+
+async function connectMongoDB() {
+  if (!MONGO_URI) {
+    console.error(
+      "ERROR: MONGO_URI is not configured."
+    );
+
+    return;
+  }
+
+  try {
+    await mongoose.connect(
+      MONGO_URI,
+      {
+        serverSelectionTimeoutMS: 30000,
+      }
+    );
+
+    mongoConnected = true;
+
+    console.log(
+      "MongoDB connected successfully."
+    );
+  } catch (error) {
+    mongoConnected = false;
+
+    console.error(
+      "MongoDB connection error:",
+      error
+    );
+  }
 }
+
+mongoose.connection.on(
+  "connected",
+  () => {
+    mongoConnected = true;
+
+    console.log(
+      "MongoDB connection established."
+    );
+  }
+);
+
+mongoose.connection.on(
+  "disconnected",
+  () => {
+    mongoConnected = false;
+
+    console.log(
+      "MongoDB disconnected."
+    );
+  }
+);
+
+mongoose.connection.on(
+  "error",
+  (error) => {
+    mongoConnected = false;
+
+    console.error(
+      "MongoDB error:",
+      error
+    );
+  }
+);
 
 // ============================================================
 // IMAGE SCHEMA
@@ -158,7 +218,6 @@ const imageSchema =
         default: Date.now,
       },
     },
-
     {
       timestamps: true,
     }
@@ -204,6 +263,7 @@ app.get(
         "Connected",
 
       mongodb:
+        mongoConnected &&
         mongoose.connection.readyState === 1
           ? "Connected"
           : "Disconnected",
@@ -212,6 +272,9 @@ app.get(
         REPLICATE_API_TOKEN
           ? "Configured"
           : "Not configured",
+
+      timestamp:
+        new Date().toISOString(),
     });
   }
 );
@@ -228,6 +291,17 @@ app.get(
         "Fetching image history..."
       );
 
+      if (
+        mongoose.connection.readyState !== 1
+      ) {
+        return res.status(503).json({
+          success: false,
+
+          error:
+            "MongoDB is not connected.",
+        });
+      }
+
       const images =
         await Image
           .find()
@@ -239,17 +313,16 @@ app.get(
         `Found ${images.length} images.`
       );
 
-      res.status(200).json(
+      return res.status(200).json(
         images
       );
-
     } catch (error) {
       console.error(
         "GET IMAGE HISTORY ERROR:",
         error
       );
 
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
 
         error:
@@ -277,9 +350,9 @@ app.post(
         type,
       } = req.body;
 
-      // ------------------------------------------
+      // ------------------------------------------------------
       // VALIDATE PROMPT
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       if (
         !prompt ||
@@ -294,9 +367,9 @@ app.post(
         });
       }
 
-      // ------------------------------------------
+      // ------------------------------------------------------
       // VALIDATE IMAGE
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       if (
         !image ||
@@ -310,9 +383,9 @@ app.post(
         });
       }
 
-      // ------------------------------------------
+      // ------------------------------------------------------
       // CHECK MONGODB
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       if (
         mongoose.connection.readyState !== 1
@@ -325,17 +398,16 @@ app.post(
         });
       }
 
-      // ------------------------------------------
+      // ------------------------------------------------------
       // CREATE IMAGE
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       const newImage =
         await Image.create({
           prompt:
             prompt.trim(),
 
-          image:
-            image,
+          image,
 
           type:
             type ||
@@ -347,9 +419,9 @@ app.post(
         newImage._id
       );
 
-      // ------------------------------------------
+      // ------------------------------------------------------
       // RETURN RESPONSE
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       return res.status(201).json({
         success: true,
@@ -360,7 +432,6 @@ app.post(
         image:
           newImage,
       });
-
     } catch (error) {
       console.error(
         "SAVE IMAGE ERROR:",
@@ -390,6 +461,17 @@ app.delete(
         id,
       } = req.params;
 
+      if (
+        mongoose.connection.readyState !== 1
+      ) {
+        return res.status(503).json({
+          success: false,
+
+          error:
+            "MongoDB is not connected.",
+        });
+      }
+
       const deletedImage =
         await Image.findByIdAndDelete(
           id
@@ -415,7 +497,6 @@ app.delete(
         message:
           "Image deleted successfully.",
       });
-
     } catch (error) {
       console.error(
         "DELETE IMAGE ERROR:",
@@ -452,9 +533,9 @@ app.post(
         "===================================="
       );
 
-      // ------------------------------------------
+      // ------------------------------------------------------
       // CHECK REPLICATE TOKEN
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       if (!REPLICATE_API_TOKEN) {
         return res.status(500).json({
@@ -465,9 +546,24 @@ app.post(
         });
       }
 
-      // ------------------------------------------
+      // ------------------------------------------------------
+      // CHECK MONGODB
+      // ------------------------------------------------------
+
+      if (
+        mongoose.connection.readyState !== 1
+      ) {
+        return res.status(503).json({
+          success: false,
+
+          error:
+            "MongoDB is not connected.",
+        });
+      }
+
+      // ------------------------------------------------------
       // GET REQUEST BODY
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       const {
         image,
@@ -491,9 +587,9 @@ app.post(
         );
       }
 
-      // ------------------------------------------
+      // ------------------------------------------------------
       // VALIDATE IMAGE
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       if (
         !image ||
@@ -507,9 +603,9 @@ app.post(
         });
       }
 
-      // ------------------------------------------
+      // ------------------------------------------------------
       // VALIDATE PROMPT
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       if (
         !prompt ||
@@ -524,9 +620,9 @@ app.post(
         });
       }
 
-      // ------------------------------------------
+      // ------------------------------------------------------
       // CHECK IMAGE SIZE
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       if (
         image.length >
@@ -544,16 +640,16 @@ app.post(
         "Starting Replicate image-to-image..."
       );
 
-      // ------------------------------------------
+      // ------------------------------------------------------
       // REPLICATE MODEL
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       const model =
         "black-forest-labs/flux-kontext-pro";
 
-      // ------------------------------------------
-      // CREATE REPLICATE PREDICTION
-      // ------------------------------------------
+      // ------------------------------------------------------
+      // CREATE PREDICTION
+      // ------------------------------------------------------
 
       const predictionResponse =
         await fetch(
@@ -568,6 +664,9 @@ app.post(
 
               "Content-Type":
                 "application/json",
+
+              Prefer:
+                "wait=1",
             },
 
             body:
@@ -591,9 +690,9 @@ app.post(
         prediction
       );
 
-      // ------------------------------------------
+      // ------------------------------------------------------
       // HANDLE REPLICATE ERROR
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       if (
         !predictionResponse.ok
@@ -610,9 +709,9 @@ app.post(
         });
       }
 
-      // ------------------------------------------
+      // ------------------------------------------------------
       // POLL PREDICTION
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       let result =
         prediction;
@@ -646,6 +745,15 @@ app.post(
           `Checking Replicate status... Attempt ${attempts}`
         );
 
+        if (
+          !result.urls ||
+          !result.urls.get
+        ) {
+          throw new Error(
+            "Replicate did not return a valid status URL."
+          );
+        }
+
         const statusResponse =
           await fetch(
             result.urls.get,
@@ -657,6 +765,14 @@ app.post(
             }
           );
 
+        if (
+          !statusResponse.ok
+        ) {
+          throw new Error(
+            `Replicate status request failed: ${statusResponse.status}`
+          );
+        }
+
         result =
           await statusResponse.json();
 
@@ -666,9 +782,26 @@ app.post(
         );
       }
 
-      // ------------------------------------------
+      // ------------------------------------------------------
+      // TIMEOUT
+      // ------------------------------------------------------
+
+      if (
+        attempts >= maxAttempts &&
+        result.status !==
+          "succeeded"
+      ) {
+        return res.status(504).json({
+          success: false,
+
+          error:
+            "Image generation timed out. Please try again.",
+        });
+      }
+
+      // ------------------------------------------------------
       // CHECK FINAL STATUS
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       if (
         result.status !==
@@ -688,9 +821,9 @@ app.post(
         });
       }
 
-      // ------------------------------------------
+      // ------------------------------------------------------
       // GET OUTPUT
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       let outputUrl =
         result.output;
@@ -720,9 +853,9 @@ app.post(
         outputUrl
       );
 
-      // ------------------------------------------
+      // ------------------------------------------------------
       // DOWNLOAD OUTPUT
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       const imageResponse =
         await fetch(
@@ -737,6 +870,12 @@ app.post(
         );
       }
 
+      const contentType =
+        imageResponse.headers.get(
+          "content-type"
+        ) ||
+        "image/png";
+
       const imageBuffer =
         Buffer.from(
           await imageResponse.arrayBuffer()
@@ -747,18 +886,18 @@ app.post(
         imageBuffer.length
       );
 
-      // ------------------------------------------
+      // ------------------------------------------------------
       // CONVERT TO BASE64
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       const base64Image =
-        `data:image/png;base64,${imageBuffer.toString(
+        `data:${contentType};base64,${imageBuffer.toString(
           "base64"
         )}`;
 
-      // ------------------------------------------
+      // ------------------------------------------------------
       // SAVE TO MONGODB
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       const savedImage =
         await Image.create({
@@ -777,9 +916,9 @@ app.post(
         savedImage._id
       );
 
-      // ------------------------------------------
+      // ------------------------------------------------------
       // RETURN RESPONSE
-      // ------------------------------------------
+      // ------------------------------------------------------
 
       return res.status(200).json({
         success: true,
@@ -793,7 +932,6 @@ app.post(
         id:
           savedImage._id,
       });
-
     } catch (error) {
       console.error(
         "===================================="
@@ -897,12 +1035,22 @@ app.use(
 // START SERVER
 // ============================================================
 
-app.listen(
-  PORT,
-  "0.0.0.0",
-  () => {
-    console.log(
-      `GenVision AI Backend running on port ${PORT}`
-    );
-  }
-);
+async function startServer() {
+  await connectMongoDB();
+
+  app.listen(
+    PORT,
+    "0.0.0.0",
+    () => {
+      console.log(
+        `GenVision AI Backend running on port ${PORT}`
+      );
+
+      console.log(
+        `Health check: http://localhost:${PORT}/api/health`
+      );
+    }
+  );
+}
+
+startServer();
