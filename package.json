@@ -2,22 +2,28 @@
   "name": "genvision-ai-backend",
   "version": "1.0.0",
   "description": "GenVision AI Backend",
-  "main": "server.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
+    "start": "node index.js",
+    "dev": "node --watch index.js"
   },
   "keywords": [
+    "genvision",
     "ai",
     "image-generation",
     "replicate",
-    "mongodb",
-    "express"
+    "mongodb"
   ],
   "author": "Gursharanjeet Kaur Gill",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "dependencies": {
+    "@fal-ai/client": "^1.10.1",
+    "@huggingface/inference": "^4.13.23",
+    "axios": "^1.19.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
