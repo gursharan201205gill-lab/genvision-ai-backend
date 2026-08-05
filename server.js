@@ -38,26 +38,45 @@ const allowedOrigins = [
 ];
 
 // CORS middleware
+// ============================================================
+// CORS CONFIGURATION
+// ============================================================
+
+const allowedOrigins = [
+  "https://genvision-ai-nu.vercel.app",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+];
+
 app.use(
   cors({
-    origin: function (origin, callback) {
-      // Allow requests without an Origin header
-      // such as Postman or direct browser requests.
+    origin: (origin, callback) => {
+      // Allow requests without origin (Postman, server-to-server, etc.)
       if (!origin) {
         return callback(null, true);
       }
 
+      // Allow localhost
+      if (
+        origin.startsWith("http://localhost") ||
+        origin.startsWith("http://127.0.0.1")
+      ) {
+        return callback(null, true);
+      }
+
+      // Allow every Vercel deployment
+      if (origin.endsWith(".vercel.app")) {
+        return callback(null, true);
+      }
+
+      // Allow manually listed domains
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
 
       console.log("CORS blocked origin:", origin);
 
-      return callback(
-        new Error(
-          `CORS policy blocked this origin: ${origin}`
-        )
-      );
+      return callback(new Error(`CORS policy blocked this origin: ${origin}`));
     },
 
     methods: [
@@ -77,7 +96,6 @@ app.use(
     credentials: false,
   })
 );
-
 // ============================================================
 // BODY PARSER
 // ============================================================
